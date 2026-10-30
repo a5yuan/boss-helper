@@ -809,8 +809,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 _emit_progress()
                 continue
 
-            # === 查重 ===
-            if writer.is_duplicate(job_name, brand_name):
+            # === 查重（title + company + 区域；区域缺失时回退旧口径）===
+            if writer.is_duplicate(job_name, brand_name, job_meta.get("areaDistrict", "")):
                 skip_count += 1
                 ctrl.log(f"  [SKIP] 重复: {job_name[:20]} | {brand_name[:10]}")
                 _emit_progress()
@@ -850,6 +850,13 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             detail = DetailPanelReader.read_detail(browser, sid, max_wait=1.5)
 
             if detail.get("success"):
+                # 详情拿到 encryptJobId 后再精确查一次，防止跨区域/跨文件重复
+                if writer.has_job_id(detail.get("encrypt_job_id")):
+                    skip_count += 1
+                    ctrl.log(f"  [SKIP] 重复(encryptJobId): {job_name[:20]}")
+                    _emit_progress()
+                    continue
+
                 vue_hit += 1
                 source = "vue-panel"
 

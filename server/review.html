@@ -14,6 +14,9 @@
   body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column}
   header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
   header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+  .back{color:var(--dim);text-decoration:none;font-size:12px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;white-space:nowrap}
+  .back:hover{color:var(--fg);border-color:var(--accent)}
+  #file{max-width:220px}
   .stats{color:var(--dim);font-size:12px;display:flex;gap:12px}
   .stats b{color:var(--fg);font-weight:600}
   .filters{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
@@ -66,8 +69,10 @@
 <body>
 <header>
   <h1>岗位复核队列</h1>
+  <a class="back" href="/" title="返回助手主界面">← 返回助手</a>
   <div class="stats" id="stats"></div>
   <div class="filters">
+    <select id="file" title="选择采集文件"></select>
     <input id="q" placeholder="搜岗位/公司/JD" style="width:170px">
     <input id="smin" type="number" placeholder="薪资≥K" style="width:88px">
     <input id="excl" placeholder="排除词" style="width:100px">
@@ -88,7 +93,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { jobs: [], tracking: {}, filter: 'all', q: '', smin: null, excl: '', idx: -1, list: [] };
+const state = { jobs: [], tracking: {}, filter: 'all', q: '', smin: null, excl: '', idx: -1, list: [], files: [], file: null };
 
 function toast(msg, kind) {
   const el = $('#toast');
@@ -230,7 +235,10 @@ function doAction(a) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
   const k = e.key.toLowerCase();
   if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); if (state.idx < state.list.length - 1) { state.idx++; render(); } }
   else if (e.key === 'ArrowUp' || k === 'k') { e.preventDefault(); if (state.idx > 0) { state.idx--; render(); } }
@@ -241,6 +249,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); focusJob(); }
 });
 
+$('#file').onchange = e => loadFile(e.target.value);
 $('#q').oninput = e => { state.q = e.target.value; state.idx = 0; render(); };
 $('#smin').oninput = e => { state.smin = e.target.value ? parseFloat(e.target.value) : null; state.idx = 0; render(); };
 $('#excl').oninput = e => { state.excl = e.target.value; state.idx = 0; render(); };
@@ -249,11 +258,35 @@ $('#tabs').querySelectorAll('.tab').forEach(t => t.onclick = () => {
   t.classList.add('on'); state.filter = t.dataset.f; state.idx = 0; render();
 });
 
+function renderFileSelect() {
+  const sel = $('#file');
+  if (!state.files.length) { sel.style.display = 'none'; return; }
+  sel.style.display = '';
+  sel.innerHTML = state.files.map(f =>
+    `<option value="${esc(f)}"${f === state.file ? ' selected' : ''}>${esc(f)}</option>`
+  ).join('');
+}
+
+async function loadFile(name) {
+  try {
+    const res = await api('/api/results' + (name ? '?date=' + encodeURIComponent(name) : ''));
+    state.jobs = res.jobs || [];
+    state.file = res.file;
+    state.files = res.files || [];
+    state.idx = 0;
+    renderFileSelect();
+    render();
+  } catch (e) { toast('加载文件失败: ' + e.message, 'err'); }
+}
+
 async function boot() {
   try {
     const [res, tr] = await Promise.all([api('/api/results'), api('/api/tracking')]);
     state.jobs = res.jobs || [];
     state.tracking = tr || {};
+    state.file = res.file;
+    state.files = res.files || [];
+    renderFileSelect();
     if (!state.jobs.length) { $('#list').innerHTML = '<div class="empty">还没有采集数据，先跑一次采集</div>'; return; }
     render();
   } catch (e) { $('#list').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>'; }

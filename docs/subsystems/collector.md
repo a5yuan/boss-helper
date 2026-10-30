@@ -49,7 +49,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 - **页面复用判断**：只有 query / city / salary / jobType / degree / experience 六项全部匹配且已登录，才跳过重载；少一项就会重新导航。改筛选参数时同步改 `page_reuse_check`。
 - **导航中被销毁的 target**：登录重定向时 `evaluate` 可能抛异常，`_goto_search` 把异常当作 `login` 处理，触发重新登录流程。
 - **`auto_scroll_list` 故意不 await Promise**：滚动 JS 内部发异步 XHR，等 Promise 会在网络慢时卡住 CDP。
-- **查重口径是 title + company**：同名同公司的不同城市岗位会被误判为重复；改口径前评估历史数据。
+- **查重口径是 title + company + 区域**：列表阶段用 `areaDistrict`，详情阶段从 `location`（「城市·区域」）取区域；两边都取不到区域时回退旧口径（视为重复）。详情拿到 `encryptJobId` 后还会精确查一次，防止跨文件重复。
 - **手动路线**：`keyword_search=False` 时不会自动导航，依赖用户先在浏览器里搜索 / 滚动。
 
 ## 测试方式

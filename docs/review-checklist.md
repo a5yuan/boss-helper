@@ -29,7 +29,7 @@
 
 - [ ] 停止 / 暂停在循环边界被检查；长睡眠用 `_interruptible_sleep`
 - [ ] 薪资 `****` 熔断逻辑没有被绕过
-- [ ] 查重口径（`title + company`）变化时，说明了重复岗位的影响
+- [ ] 查重口径（`title + company + 区域`，详情后按 `encryptJobId` 兜底）变化时，说明了重复岗位的影响
 - [ ] 输出文件名前缀 / tag 规则没有被破坏（`_append_location_tag`）
 
 ## 复核队列
@@ -37,7 +37,9 @@
 - [ ] `/api/focus` 的 click → URL 回退顺序保留
 - [ ] `/api/greet` 只填输入框，不点击发送
 - [ ] 采集任务运行时，focus / greet 返回明确错误，而不是并发操作浏览器
-- [ ] 快捷键不会被输入框抢走（`e.target.tagName === 'INPUT'` 分支）
+- [ ] 快捷键不会被输入框 / 下拉框抢走（`INPUT` / `SELECT` 分支）
+- [ ] 复核队列入口在 dev 代理下能打开（Vite 已代理 `/review`）
+- [ ] 切换历史文件后，列表刷新且定位 / 招呼语仍能找到岗位
 
 ## 服务与前端
 

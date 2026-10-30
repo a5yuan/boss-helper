@@ -40,6 +40,15 @@ const metrics = [
   { k: "skip", label: "跳过", cls: "text-fg-muted" },
   { k: "vue_hit", label: "Vue直读", cls: "text-fg" },
 ];
+
+function openReview() {
+  const w = window as any;
+  if (w.pywebview?.api?.open_review) {
+    w.pywebview.api.open_review();
+  } else {
+    window.open("/review", "_blank");
+  }
+}
 </script>
 
 <template>
@@ -64,6 +73,16 @@ const metrics = [
           岗位列表
         </button>
       </div>
+
+      <!-- 复核队列：在系统浏览器打开，避免打断桌面窗口里的采集状态 -->
+      <button
+        type="button"
+        class="btn-ghost !py-1 !px-2.5 text-xs shrink-0"
+        title="在系统浏览器中打开复核队列"
+        @click="openReview"
+      >
+        📋 复核队列
+      </button>
 
       <!-- 运行状态与进度文字 -->
       <div class="flex items-center gap-2 text-xs">

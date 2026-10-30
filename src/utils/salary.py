@@ -8,8 +8,15 @@ import re
 
 _RANGE_K = re.compile(r"(\d+(?:\.\d+)?)\s*[-~―]\s*(\d+(?:\.\d+)?)\s*[Kk]")
 _SINGLE_K = re.compile(r"(\d+(?:\.\d+)?)\s*[Kk]")
+# 两端都带单位的区间，兼容「8千-1.2万」这类混用写法
+_RANGE_MIXED = re.compile(r"(\d+(?:\.\d+)?)\s*([千万])\s*[-~―]\s*(\d+(?:\.\d+)?)\s*([千万])")
 _RANGE_WAN = re.compile(r"(\d+(?:\.\d+)?)\s*万?\s*[-~―]\s*(\d+(?:\.\d+)?)\s*万")
 _RANGE_QIAN = re.compile(r"(\d+(?:\.\d+)?)\s*千?\s*[-~―]\s*(\d+(?:\.\d+)?)\s*千")
+
+
+def _to_k(num: float, unit: str) -> float:
+    """把「万」换算成 K；「千」本身就是 K。"""
+    return num * 10 if unit == "万" else num
 
 
 def parse_salary(text):
@@ -28,6 +35,13 @@ def parse_salary(text):
     m = _RANGE_K.search(s)
     if m:
         return (float(m.group(1)), float(m.group(2)))
+
+    m = _RANGE_MIXED.search(s)
+    if m:
+        return (
+            _to_k(float(m.group(1)), m.group(2)),
+            _to_k(float(m.group(3)), m.group(4)),
+        )
 
     m = _RANGE_WAN.search(s)
     if m:

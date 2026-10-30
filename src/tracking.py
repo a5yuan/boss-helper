@@ -14,6 +14,11 @@ from datetime import datetime
 VALID_STATUS = {"new", "shortlisted", "skipped", "applied"}
 
 
+def track_key(security_id: str, encrypt_job_id: str) -> str:
+    """encryptJobId 跨页面加载稳定，优先用它做主键；securityId 仅作会话内兜底。"""
+    return encrypt_job_id or security_id
+
+
 class Tracker:
     def __init__(self, path: str | None = None):
         self._path = path

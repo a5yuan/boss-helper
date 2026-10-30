@@ -251,6 +251,7 @@ class _PickApi:
     def __init__(self):
         self._window = None
         self._webview = None
+        self._base_url = ""
 
     # ── 文件选择 ───────────────────────────────────────────────
     def pick_folder(self):
@@ -298,6 +299,17 @@ class _PickApi:
                 pass
             print(f"[PickApi] save_file error: {e}")
         return ""
+
+    # ── 复核队列 ───────────────────────────────────────────────
+    def open_review(self):
+        """在系统浏览器打开复核队列，保留桌面窗口里的采集状态。"""
+        try:
+            import webbrowser
+            url = (self._base_url or "").rstrip("/") + "/review"
+            webbrowser.open(url)
+            return True
+        except Exception:
+            return False
 
     # ── 通知 ───────────────────────────────────────────────────
     def flash_taskbar(self, count=6):
@@ -485,6 +497,7 @@ def _main_impl():
 
     pick_api = _PickApi()
     pick_api._webview = webview
+    pick_api._base_url = url
 
     x, y = _center_xy(webview, WIN_W, WIN_H)
     window = webview.create_window(

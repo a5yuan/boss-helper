@@ -63,7 +63,10 @@ src/*  →  server.tracer（只在函数内延迟 import）
 
 ## 验证与提交
 
-- **当前没有自动化测试。** 改动必须给出可复现的手动验证步骤：启动命令、操作路径、预期输出（文件 / 接口 / 界面）。步骤写进提交说明或 PR 描述。
+- 已有最小单元测试（`tests/`，stdlib `unittest`）。改动前先跑：
+  `.venv/Scripts/python -m unittest discover -s tests -v`
+- 纯逻辑改动（薪资解析、查重、状态机、ID 规则）必须补测试；涉及浏览器 / CDP 的改动仍以可复现的手动步骤为准。
+- 改动必须给出可复现的手动验证步骤：启动命令、操作路径、预期输出（文件 / 接口 / 界面）。步骤写进提交说明或 PR 描述。
 - 一个 commit 只做一件事；message 说清"为什么"，diff 说明"是什么"。
 - 行为变化同步 `CHANGELOG.md`。
 - 提交前至少做一次语法检查：`.venv/Scripts/python -m compileall src server main.py run_gui.py`；前端改动跑 `npm --prefix webui run build`。

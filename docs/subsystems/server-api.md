@@ -15,7 +15,7 @@
 - **同一时刻只有一个采集任务**：`Session.running` 为真时 `start` 抛错。
 - **引擎与 UI 只通过 `GuiController.events` 队列通信**；WS 每 0.15s `drain()` 一次。
 - **API 失败返回 `{ok: false, error}`**，不把 traceback 直接抛给前端。
-- **dev 模式**：Vite 代理 `/api`、`/ws`、`/__debug_log`、`/__debug_panel` 到后端；**prod 模式**：`server/static/` 挂在 `/`。
+- **dev 模式**：Vite 代理 `/api`、`/ws`、`/review`、`/__debug_log`、`/__debug_panel` 到后端；**prod 模式**：`server/static/` 挂在 `/`。
 - **`/review` 不依赖 Vue 构建产物**，直接返回 `server/review.html`。
 - **GUI 模式没有控制台**：stdout / stderr 必须重定向到 `startup.log`。
 
@@ -68,7 +68,7 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 - **同步路由会占线程池**：`/api/focus`、`/api/greet` 内部同步操作浏览器（含 `time.sleep`），并发请求会排队。
 - **`_with_browser` 在采集运行时直接拒绝**：这是有意的，不要改成并发连接同一个浏览器。
 - **`session.controller` 在任务结束后仍保留**：`/api/status` 会继续返回最后一次进度和 state，前端据此显示"已停止"。
-- **`StaticFiles` 挂在 `/`**：新增路由必须在 mount 之前注册，否则会被静态托管吞掉。
+- **`StaticFiles` 挂在 `/`**：新增路由必须在 mount 之前注册，否则会被静态托管吞掉；`/review` 就是靠这一点在 mount 之前注册的。
 - **Vite 构建 `outDir` 是 `../server/static`**：`build_exe.py` 又拷 `webui/dist`，两处产物要一致。
 - **端口**：dev 模式自动找空闲端口并写 `.env.local`；prod 固定 `BOSS_BACKEND_PORT`。
 

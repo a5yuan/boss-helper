@@ -78,10 +78,16 @@ python main.py --new -b chrome -n 20
 
 ## 测试现状
 
-仓库目前没有自动化测试。修复 bug 时至少提供：
+已有最小单元测试（`tests/`，stdlib `unittest`）：
+
+```bash
+.venv/Scripts/python -m unittest discover -s tests -v
+```
+
+覆盖薪资解析、投递状态库、查重口径。修复 bug 时至少提供：
 
 - 一个能稳定触发原问题的操作序列；
 - 修复后用同样序列的结果；
 - 如果改的是 `/review` 或 tracking，重启服务后确认状态仍在。
 
-建立 `tests/` 后，在本文件补上运行命令。
+浏览器 / CDP 相关改动没有自动化覆盖，仍需手动复现步骤。

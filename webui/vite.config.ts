@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": { target: backendUrl, changeOrigin: true },
         "/ws": { target: backendUrl.replace("http", "ws"), ws: true },
+        "/review": { target: backendUrl, changeOrigin: true },
         "/__debug_log": { target: backendUrl, changeOrigin: true },
         "/__debug_panel": { target: backendUrl, changeOrigin: true },
       },

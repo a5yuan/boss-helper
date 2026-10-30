@@ -2,6 +2,13 @@ import os
 import json
 from datetime import datetime
 
+
+def _job_area(job):
+    """从详情 location（如「北京·朝阳区」）取区域；取不到返回空串。"""
+    parts = [p.strip() for p in str(job.get("location") or "").split("·") if p.strip()]
+    return parts[1] if len(parts) >= 2 else ""
+
+
 class OutputWriter:
     """JSON + Markdown 双格式输出"""
     
@@ -21,12 +28,27 @@ class OutputWriter:
             except: pass
         return []
     
-    def is_duplicate(self, title, company):
-        """内存查重"""
+    def is_duplicate(self, title, company, area=""):
+        """内存查重。
+
+        同名同公司默认视为重复；若两边都能取到区域且区域不同，则视为
+        不同岗位（同一公司在多个城市/区域同时招人）。区域缺失时保持旧口径。
+        """
+        area = (area or "").strip()
         for x in self.all_jobs:
-            if x.get('title') == title and x.get('company') == company:
-                return True
+            if x.get('title') != title or x.get('company') != company:
+                continue
+            other = _job_area(x)
+            if area and other and area != other:
+                continue
+            return True
         return False
+
+    def has_job_id(self, job_id):
+        """encryptJobId 精确查重：跨文件、跨运行都有效。"""
+        if not job_id:
+            return False
+        return any(x.get("encrypt_job_id") == job_id for x in self.all_jobs)
     
     @staticmethod
     def clean_text(text):

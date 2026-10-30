@@ -13,6 +13,7 @@
 | 改 FastAPI 接口 / Session / 启动器 / Vue 前端 | `docs/subsystems/server-api.md` | 知道单任务约束、事件流和 dev/prod 两种启动方式 |
 | 改 `/review` 复核队列、投递状态、定位、招呼语 | `docs/subsystems/review-queue.md` | 知道 encryptJobId 与 securityId 的区别，以及状态机 |
 | 写新代码 / 重构 | `docs/code-standards.md` | 命名、依赖方向、错误处理、验证要求已明确 |
+| 改薪资解析 / 查重 / 投递状态等纯逻辑 | `docs/code-standards.md` + `tests/` | 先跑通现有测试，再补一条能覆盖改动的测试 |
 | 审查代码或 PR | `docs/code-standards.md` + `docs/review-checklist.md` | 能逐条对照，而不是凭感觉 |
 | 审查外部贡献者提交的 PR | `CODE_OF_CONDUCT.md`、`LICENSE`（额外规则**尚未编写**，首次收到外部 PR 时补 `docs/contributors.md`） | 知道 CLA / 测试 / 变更说明的要求 |
 | 修 bug / 复现问题 | `docs/debugging.md` + 对应 `docs/subsystems/` | 能按文档给出本地复现步骤 |
@@ -58,6 +59,10 @@ docs/
     review-queue.md              ← 复核队列与投递跟踪
 prompts/
   nightly-review.md              ← 夜间复盘提示词
+tests/
+  test_salary.py                 ← 薪资解析与区间匹配
+  test_tracking.py               ← 投递状态库与 track_key
+  test_writer.py                 ← 输出写入与查重口径
 .agents/
   skills/tracelink/              ← TraceLink 追踪接入说明（已有）
   workflows/compliance-check.md  ← 合规术语扫描（已有）

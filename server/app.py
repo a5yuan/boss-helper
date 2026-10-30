@@ -316,7 +316,7 @@ def api_debug_panel():
 
 # ── 复核队列：状态跟踪 + 浏览器定位 + 招呼语填充 ────────────────────────────
 
-from src.tracking import tracker  # noqa: E402
+from src.tracking import tracker, track_key  # noqa: E402
 
 
 class TrackBody(BaseModel):
@@ -337,14 +337,14 @@ class GreetBody(BaseModel):
     text: str | None = None
 
 
-def _track_key(security_id: str, encrypt_job_id: str) -> str:
-    """encryptJobId 跨页面加载稳定，优先用它做主键。"""
-    return encrypt_job_id or security_id
+def _job_files() -> list:
+    """按时间倒序返回所有采集结果文件。"""
+    out = get_config("chrome").get("output_dir", "")
+    return sorted(glob.glob(os.path.join(out, "jobs_*.json")), reverse=True)
 
 
 def _latest_jobs() -> list:
-    out = get_config("chrome").get("output_dir", "")
-    files = sorted(glob.glob(os.path.join(out, "jobs_*.json")), reverse=True)
+    files = _job_files()
     if not files:
         return []
     try:
@@ -356,11 +356,20 @@ def _latest_jobs() -> list:
 
 
 def _find_job(security_id: str = "", encrypt_job_id: str = "") -> dict | None:
-    for j in _latest_jobs():
-        if encrypt_job_id and j.get("encrypt_job_id") == encrypt_job_id:
-            return j
-        if security_id and j.get("security_id") == security_id:
-            return j
+    """优先在最新文件里找；复核历史文件时也能回退到旧文件。"""
+    for path in _job_files():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(data, list):
+            continue
+        for j in data:
+            if encrypt_job_id and j.get("encrypt_job_id") == encrypt_job_id:
+                return j
+            if security_id and j.get("security_id") == security_id:
+                return j
     return None
 
 
@@ -403,7 +412,7 @@ def api_tracking():
 
 @app.post("/api/tracking")
 def api_tracking_set(body: TrackBody):
-    key = _track_key(body.security_id, body.encrypt_job_id)
+    key = track_key(body.security_id, body.encrypt_job_id)
     if not key:
         return {"ok": False, "error": "缺少岗位 ID"}
     try:
