@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>岗位复核队列 · BOSS Helper</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel2:#1c212a; --line:#262d38;
+    --fg:#e6e9ef; --dim:#8b95a5; --accent:#5b9cf8; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+  .stats{color:var(--dim);font-size:12px;display:flex;gap:12px}
+  .stats b{color:var(--fg);font-weight:600}
+  .filters{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:5px 8px;font:inherit;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  input[type=number]{width:78px}
+  .tabs{display:flex;gap:4px}
+  .tab{padding:5px 11px;border-radius:6px;cursor:pointer;color:var(--dim);font-size:13px;user-select:none}
+  .tab:hover{background:var(--panel2);color:var(--fg)}
+  .tab.on{background:var(--accent);color:#fff}
+  main{flex:1;display:grid;grid-template-columns:390px 1fr;min-height:0}
+  #list{overflow-y:auto;border-right:1px solid var(--line);background:var(--panel)}
+  .item{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;border-left:3px solid transparent}
+  .item:hover{background:var(--panel2)}
+  .item.sel{background:var(--panel2);border-left-color:var(--accent)}
+  .item .r1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .item .t{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .sal{color:var(--ok);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .item .r2{color:var(--dim);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;margin-right:5px;vertical-align:1px}
+  .b-new{background:#243044;color:#8ab4f8}
+  .b-shortlisted{background:#3a2f14;color:#e3b341}
+  .b-skipped{background:#2a2f38;color:#8b95a5}
+  .b-applied{background:#15331f;color:#56d364}
+  .no-id{color:var(--bad);font-size:11px}
+  #detail{overflow-y:auto;padding:20px 26px}
+  .d-title{font-size:19px;font-weight:700;margin:0 0 4px}
+  .d-sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  .d-sal{color:var(--ok);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:2px 8px;font-size:12px;color:var(--dim)}
+  .sect{margin-top:18px}
+  .sect h3{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:0 0 8px;font-weight:600}
+  pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin:0;font:13px/1.65 inherit;color:#cdd3dd}
+  .actions{position:sticky;bottom:0;display:flex;gap:8px;padding:12px 0;background:linear-gradient(transparent,var(--bg) 30%)}
+  button{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:7px 14px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.ok{background:#1f6f34;border-color:#1f6f34;color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px;color:var(--dim)}
+  .empty{padding:40px;color:var(--dim);text-align:center}
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 16px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:420px}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--bad);color:#ffb4ae}
+  .toast.ok{border-color:var(--ok);color:#9ae6a5}
+  .hint{color:var(--dim);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>岗位复核队列</h1>
+  <div class="stats" id="stats"></div>
+  <div class="filters">
+    <input id="q" placeholder="搜岗位/公司/JD" style="width:170px">
+    <input id="smin" type="number" placeholder="薪资≥K" style="width:88px">
+    <input id="excl" placeholder="排除词" style="width:100px">
+    <div class="tabs" id="tabs">
+      <div class="tab on" data-f="all">全部</div>
+      <div class="tab" data-f="new">待看</div>
+      <div class="tab" data-f="shortlisted">收藏</div>
+      <div class="tab" data-f="applied">已投</div>
+      <div class="tab" data-f="skipped">跳过</div>
+    </div>
+  </div>
+</header>
+<main>
+  <div id="list"></div>
+  <div id="detail"><div class="empty">选择左侧岗位开始复核</div></div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { jobs: [], tracking: {}, filter: 'all', q: '', smin: null, excl: '', idx: -1, list: [] };
+
+function toast(msg, kind) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = 'toast'; }, 3200);
+}
+
+// securityId 每次页面加载都会变，encryptJobId 才是稳定主键
+function keyOf(j) { return j.encrypt_job_id || j.security_id || ''; }
+function statusOf(j) { return (state.tracking[keyOf(j)] || {}).status || 'new'; }
+function idsOf(j) { return { security_id: j.security_id || '', encrypt_job_id: j.encrypt_job_id || '' }; }
+function salaryMin(s) {
+  const m = String(s || '').match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)/);
+  if (m) return parseFloat(m[1]);
+  const m2 = String(s || '').match(/(\d+(?:\.\d+)?)\s*K/i);
+  return m2 ? parseFloat(m2[1]) : 0;
+}
+
+function computeList() {
+  const q = state.q.trim().toLowerCase();
+  const excl = state.excl.split(/[,，\s]+/).filter(Boolean).map(s => s.toLowerCase());
+  state.list = state.jobs.filter(j => {
+    const st = statusOf(j);
+    if (state.filter !== 'all' && st !== state.filter) return false;
+    if (state.smin != null && salaryMin(j.salary) < state.smin) return false;
+    const hay = [j.title, j.company, j.jd, j.skills].join(' ').toLowerCase();
+    if (q && !hay.includes(q)) return false;
+    if (excl.length && excl.some(w => hay.includes(w))) return false;
+    return true;
+  });
+  if (state.idx >= state.list.length) state.idx = state.list.length - 1;
+  if (state.idx < 0 && state.list.length) state.idx = 0;
+}
+
+function renderStats() {
+  const counts = { new: 0, shortlisted: 0, applied: 0, skipped: 0 };
+  state.jobs.forEach(j => counts[statusOf(j)]++);
+  $('#stats').innerHTML =
+    `<span>共 <b>${state.jobs.length}</b></span>` +
+    `<span>待看 <b>${counts.new}</b></span>` +
+    `<span>收藏 <b>${counts.shortlisted}</b></span>` +
+    `<span>已投 <b>${counts.applied}</b></span>` +
+    `<span>跳过 <b>${counts.skipped}</b></span>`;
+}
+
+function renderList() {
+  const el = $('#list');
+  if (!state.list.length) { el.innerHTML = '<div class="empty">没有符合条件的岗位</div>'; return; }
+  el.innerHTML = state.list.map((j, i) => {
+    const st = statusOf(j), sid = keyOf(j);
+    const label = { new: '待看', shortlisted: '收藏', applied: '已投', skipped: '跳过' }[st];
+    return `<div class="item ${i === state.idx ? 'sel' : ''}" data-i="${i}">
+      <div class="r1"><span class="t">${esc(j.title || '(无标题)')}</span><span class="sal">${esc(j.salary || '')}</span></div>
+      <div class="r2"><span class="badge b-${st}">${label}</span>${esc(j.company || '')} · ${esc(j.location || '')}${sid ? '' : ' <span class="no-id">无ID</span>'}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.item').forEach(n => n.onclick = () => { state.idx = +n.dataset.i; render(); });
+  const sel = el.querySelector('.item.sel');
+  if (sel) sel.scrollIntoView({ block: 'nearest' });
+}
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function renderDetail() {
+  const j = state.list[state.idx];
+  if (!j) { $('#detail').innerHTML = '<div class="empty">选择左侧岗位开始复核</div>'; return; }
+  const st = statusOf(j), sid = keyOf(j);
+  const chips = (arr, cls) => (arr || []).map(x => `<span class="chip">${esc(x)}</span>`).join('');
+  $('#detail').innerHTML = `
+    <h2 class="d-title">${esc(j.title || '(无标题)')}</h2>
+    <div class="d-sub">
+      <span class="d-sal">${esc(j.salary || '')}</span> · ${esc(j.location || '')} ·
+      ${esc(j.experience || '')} / ${esc(j.degree || '')} ·
+      ${esc(j.company || '')} ${esc(j.company_stage || '')} ${esc(j.company_scale || '')}
+    </div>
+    <div class="chips">${chips(j.skills)}${chips(j.welfare)}</div>
+    <div class="sect"><h3>职位描述</h3><pre>${esc(j.jd || '（未采集到 JD）')}</pre></div>
+    ${j.company_intro ? `<div class="sect"><h3>公司简介</h3><pre>${esc(j.company_intro)}</pre></div>` : ''}
+    <div class="sect"><h3>招聘者</h3><div>${esc(j.boss_name || '')} · ${esc(j.boss_title || '')}</div></div>
+    <div class="actions">
+      <button class="ok" data-act="applied" ${st === 'applied' ? 'disabled' : ''}>已投 <kbd>A</kbd></button>
+      <button data-act="shortlisted">收藏 <kbd>L</kbd></button>
+      <button data-act="skipped">跳过 <kbd>S</kbd></button>
+      <button class="primary" data-act="focus" ${sid ? '' : 'disabled'}>在浏览器定位 <kbd>Enter</kbd></button>
+      <button data-act="greet" ${sid ? '' : 'disabled'}>填招呼语 <kbd>G</kbd></button>
+    </div>
+    <div class="hint">${j.encrypt_job_id ? '岗位ID: <code>' + esc(j.encrypt_job_id) + '</code>' : (j.security_id ? '仅有会话内 securityId（旧数据），刷新页面后定位会失效' : '这条记录缺少岗位 ID，请重新采集')}</div>
+  `;
+  $('#detail').querySelectorAll('button[data-act]').forEach(b => b.onclick = () => doAction(b.dataset.act));
+}
+
+function render() { computeList(); renderStats(); renderList(); renderDetail(); }
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function setStatus(status) {
+  const j = state.list[state.idx]; if (!j) return;
+  const sid = keyOf(j);
+  if (!sid) { toast('这条记录没有稳定 ID，无法保存状态', 'err'); return; }
+  try {
+    await api('/api/tracking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...idsOf(j), status }) });
+    state.tracking[sid] = Object.assign(state.tracking[sid] || {}, { status });
+    toast(`已标记为「${status}」`, 'ok');
+    render();
+    if (status === 'skipped' || status === 'applied') { state.idx = Math.min(state.idx, state.list.length - 1); render(); }
+  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+}
+
+async function focusJob() {
+  const j = state.list[state.idx]; if (!j) return;
+  const sid = keyOf(j);
+  if (!sid) { toast('缺少岗位 ID', 'err'); return; }
+  try {
+    const r = await api('/api/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idsOf(j)) });
+    toast(r.ok ? '已在浏览器中定位，窗口已切到前台' : ('定位失败: ' + (r.error || '未知')), r.ok ? 'ok' : 'err');
+  } catch (e) { toast('定位失败: ' + e.message, 'err'); }
+}
+
+async function greet() {
+  const j = state.list[state.idx]; if (!j) return;
+  const sid = keyOf(j);
+  if (!sid) { toast('缺少岗位 ID', 'err'); return; }
+  try {
+    const r = await api('/api/greet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idsOf(j)) });
+    toast(r.ok ? ('已填入输入框：' + (r.filled || '')) : ('填充失败: ' + (r.error || '未知')), r.ok ? 'ok' : 'err');
+  } catch (e) { toast('填充失败: ' + e.message, 'err'); }
+}
+
+function doAction(a) {
+  if (a === 'focus') focusJob();
+  else if (a === 'greet') greet();
+  else setStatus(a);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
+  const k = e.key.toLowerCase();
+  if (e.key === 'ArrowDown' || k === 'j') { e.preventDefault(); if (state.idx < state.list.length - 1) { state.idx++; render(); } }
+  else if (e.key === 'ArrowUp' || k === 'k') { e.preventDefault(); if (state.idx > 0) { state.idx--; render(); } }
+  else if (k === 'a') { e.preventDefault(); setStatus('applied'); }
+  else if (k === 's') { e.preventDefault(); setStatus('skipped'); }
+  else if (k === 'l') { e.preventDefault(); setStatus('shortlisted'); }
+  else if (k === 'g') { e.preventDefault(); greet(); }
+  else if (e.key === 'Enter') { e.preventDefault(); focusJob(); }
+});
+
+$('#q').oninput = e => { state.q = e.target.value; state.idx = 0; render(); };
+$('#smin').oninput = e => { state.smin = e.target.value ? parseFloat(e.target.value) : null; state.idx = 0; render(); };
+$('#excl').oninput = e => { state.excl = e.target.value; state.idx = 0; render(); };
+$('#tabs').querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  $('#tabs').querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on'); state.filter = t.dataset.f; state.idx = 0; render();
+});
+
+async function boot() {
+  try {
+    const [res, tr] = await Promise.all([api('/api/results'), api('/api/tracking')]);
+    state.jobs = res.jobs || [];
+    state.tracking = tr || {};
+    if (!state.jobs.length) { $('#list').innerHTML = '<div class="empty">还没有采集数据，先跑一次采集</div>'; return; }
+    render();
+  } catch (e) { $('#list').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>'; }
+}
+boot();
+</script>
+</body>
+</html>

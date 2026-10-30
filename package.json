@@ -1,0 +1,18 @@
+{
+  "name": "boss-helper-root",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preinstall": "node -e \"const path = require('path'); if (process.cwd() === path.dirname(process.env.npm_package_json)) { console.error('\\n\\n❌【警告】请勿在根目录直接运行 npm install。\\n👉 首次安装所有依赖请运行: npm run install-deps\\n👉 给前端添加新依赖请运行: npm run add -- <package>\\n\\n'); process.exit(1); }\"",
+    "install-deps": "npm --prefix webui install",
+    "add": "npm --prefix webui install",
+    "dev": ".venv\\Scripts\\python run_gui.py --dev",
+    "build": "npm --prefix webui run build",
+    "build:exe": ".venv\\Scripts\\python build_exe.py",
+    "sdk:refresh:javascript": "npm --prefix webui update tracelink",
+    "sdk:refresh:python": ".venv\\Scripts\\python -m pip install --upgrade tracelink",
+    "sdk:refresh": "npm run sdk:refresh:javascript && npm run sdk:refresh:python",
+    "dashboard": "npm --prefix webui exec -- tracelink dashboard",
+    "release": "node scripts/release.js"
+  }
+}

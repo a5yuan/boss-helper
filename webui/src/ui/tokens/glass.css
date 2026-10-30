@@ -1,0 +1,104 @@
+/* ============================================================
+ * 毛玻璃设计令牌（本项目原创）
+ * 双色调：light（默认）/ dark，全部以 CSS 变量暴露，便于换肤 / 插件化
+ * 通过给 <html> 添加 .dark 切换深色
+ * ============================================================ */
+
+:root {
+  /* 声明本应用自管配色，避免内核（WebView2 等）自动暗化/反色 */
+  color-scheme: light;
+
+  /* 形状 / 动效（与主题无关） */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 240ms;
+
+  /* ===== Light 主题（默认） ===== */
+  --app-bg: #eef0f3;
+  --bg-base: #eef0f3;
+  --bg-panel: #ffffff;
+  --bg-raised: #f3f4f6;
+  --bg-border: rgba(17, 17, 19, 0.1);
+
+  --fg: rgba(17, 17, 19, 0.96);
+  --fg-muted: rgba(17, 17, 19, 0.58);
+  --fg-subtle: rgba(17, 17, 19, 0.4);
+
+  --accent: #18181b;
+  --accent-fg: #ffffff;
+  --danger: #e5484d;
+  --success: #2f9e63;
+
+  /* 实心主按钮：默认与 hover 成对反转（背景、文字互换，避免 hover 白底白字） */
+  --btn-solid-bg: var(--accent);
+  --btn-solid-fg: var(--accent-fg);
+  --btn-solid-bg-hover: var(--accent-fg);
+  --btn-solid-fg-hover: var(--accent);
+
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-hover: rgba(255, 255, 255, 0.72);
+  --glass-bg-active: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(17, 17, 19, 0.08);
+  --glass-border-hover: rgba(17, 17, 19, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.75);
+  --glass-blur: 18px;
+  --glass-shadow: 0 12px 32px -14px rgba(17, 17, 19, 0.22);
+
+  /* 滚动条：跟随主题切换；用相对灰度，避免 light 下"白底白条" */
+  --scrollbar-thumb: rgba(17, 17, 19, 0.22);
+  --scrollbar-thumb-hover: rgba(17, 17, 19, 0.36);
+  --scrollbar-size: 9px;
+
+  /* 顶栏高度默认值；App.vue 启动后由 ResizeObserver 测得真实高度并覆盖 */
+  --header-h: 56px;
+}
+
+:root.dark {
+  color-scheme: dark;
+
+  /* ===== Dark 主题 ===== */
+  --app-bg: #0a0a0b;
+  --bg-base: #0a0a0b;
+  --bg-panel: #101012;
+  --bg-raised: #17171a;
+  --bg-border: rgba(255, 255, 255, 0.1);
+
+  --fg: rgba(255, 255, 255, 0.95);
+  --fg-muted: rgba(255, 255, 255, 0.55);
+  --fg-subtle: rgba(255, 255, 255, 0.38);
+
+  --accent: #ffffff;
+  --accent-fg: #0a0a0b;
+  --danger: #ff5a5f;
+  --success: #4ade80;
+
+  --btn-solid-bg: var(--accent);
+  --btn-solid-fg: var(--accent-fg);
+  --btn-solid-bg-hover: var(--accent-fg);
+  --btn-solid-fg-hover: var(--accent);
+
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-bg-hover: rgba(255, 255, 255, 0.075);
+  --glass-bg-active: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-hover: rgba(255, 255, 255, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+
+  /* 滚动条（dark）：淡白拇指，hover 加深 */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+  --scrollbar-size: 9px;
+}
+
+/* 通用玻璃表面工具类 */
+.glass-surface {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}

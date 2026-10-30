@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tracelink": {
+      "source": "qinquan-ai/tracelink",
+      "sourceType": "github",
+      "skillPath": "skills/tracelink/SKILL.md",
+      "computedHash": "7e7145b8f8b3a464d8bca95edc109c9b4018bce63ff0bee7e5931ca002138b38"
+    }
+  }
+}

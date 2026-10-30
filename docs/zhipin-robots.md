@@ -1,0 +1,59 @@
+# zhipin.com robots.txt Reference
+
+> Snapshot date: 2026-06-22
+> Source: `curl -s -A "Mozilla/5.0" https://www.zhipin.com/robots.txt`
+
+This document records the `robots.txt` published by zhipin.com at the time of
+development, for reference purposes.
+
+## Full Content
+
+```
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: Jobuispider
+Disallow: /
+
+User-agent: *
+Disallow: /*?query=*
+Disallow: /*?ka=*
+Disallow: /*?sid=*
+Disallow: /*.js*
+Disallow: /job_detail/l*.html
+Disallow: *?position=*
+Disallow: *?city=*
+Disallow: *?experience=*
+Disallow: *?salary=*
+Disallow: *?degree=*
+Disallow: /sem/*
+Disallow: /user/sem*
+Disallow: *?period=*
+Disallow: /wapi/zpaso/*/sem*
+Disallow: /brand/*
+Disallow: /wapi/zppassport/get/zpToken*
+Disallow: /wapi/zpchat/wechat/hasBadge*
+Disallow: /wapi/zpitem/web/geekVip/getSubscribeYellow*
+Disallow: /wapi/zpuser/countryCode*
+Disallow: *?from=*
+Disallow: /?ivk_sa=*
+Disallow: /*?key=*
+Disallow: /?scity=*
+Disallow: /?page=*
+Disallow: /web/boss/*
+Disallow: /web/geek/guide*
+Disallow: /web/geek/recommend*
+Disallow: /*?medium=*
+Disallow: /*?ref=*
+Disallow: /*?frozen=*
+Disallow: /web/geek/job-recommend*
+Disallow: *?utm_source=*
+Disallow: *?pkn=*
+Disallow: *?amp=*
+Disallow: *?category_path=*
+Disallow: *?eqid=*
+Disallow: *?key2=*
+Disallow: /*?*
+Disallow: *?seoRefer=*
+Disallow: /job_pk/*
+```

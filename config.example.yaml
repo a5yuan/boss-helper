@@ -1,0 +1,20 @@
+# BOSS 直聘 V14 助手配置
+# 首次使用请复制 config.example.yaml 为 config.yaml，并修改为你的实际路径
+
+chrome:
+  # Chrome 浏览器路径（留空则自动检测）
+  path: ""
+  # 用户数据目录（用于保持登录状态，留空则使用项目下 profiles/default）
+  profile_dir: ""
+
+output:
+  # 输出目录（留空则使用项目下 output/）
+  dir: ""
+
+humanize:
+  # 概率分布延迟（秒）
+  delay_fast: [1.2, 2.8]       # 35% 概率
+  delay_normal: [3.2, 6.0]     # 50% 概率
+  delay_deep: [8.0, 15.0]      # 15% 概率
+  step_interval: 12             # 每 N 条休息一次
+  step_break: [8.0, 18.0]      # 休息时长范围（秒）
