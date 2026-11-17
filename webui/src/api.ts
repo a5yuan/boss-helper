@@ -11,6 +11,7 @@ export interface StartParams {
   browser_type: string;
   safe_mode: boolean;
   fast: boolean;
+  speed: "slow" | "normal" | "fast";
   new_chrome: boolean;
   tag: string | null;
   keyword_search: boolean;

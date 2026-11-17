@@ -12,6 +12,8 @@ output:
   dir: ""
 
 humanize:
+  # 注意：当前版本采集节奏由 start_params.speed（slow / normal / fast）控制，
+  # 以下字段仅为旧配置保留，尚未生效。
   # 概率分布延迟（秒）
   delay_fast: [1.2, 2.8]       # 35% 概率
   delay_normal: [3.2, 6.0]     # 50% 概率

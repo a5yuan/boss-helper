@@ -14,6 +14,23 @@ const browserOptions = [
   { label: "Edge", value: "edge" },
 ];
 
+const SPEED_OPTIONS = [
+  { label: "慢速（安全模式）", value: "slow" },
+  { label: "中速", value: "normal" },
+  { label: "快速（无人工延迟）", value: "fast" },
+];
+
+function onSpeedChange(v: string) {
+  const speed = (["slow", "normal", "fast"].includes(v) ? v : "slow") as
+    | "slow"
+    | "normal"
+    | "fast";
+  engine.params.speed = speed;
+  // 同步旧布尔字段，兼容 CLI 与历史配置
+  engine.params.safe_mode = speed !== "fast";
+  engine.params.fast = speed === "fast";
+}
+
 onMounted(() => {
   if (!engine.cities.length) engine.loadCities();
 });
@@ -423,20 +440,18 @@ async function confirmReset() {
     </div>
 
     <div class="flex flex-col gap-3.5 pt-1">
-      <label class="flex items-center justify-between cursor-pointer">
-        <span class="text-sm text-fg-muted">安全模式</span>
-        <GlassCheckbox
-          v-model="engine.params.safe_mode"
-          :disabled="engine.running || engine.params.fast"
+      <div class="flex flex-col gap-1.5">
+        <label class="field-label">采集速度</label>
+        <GlassSelect
+          :model-value="engine.params.speed"
+          :options="SPEED_OPTIONS"
+          :disabled="engine.running"
+          @update:model-value="onSpeedChange"
         />
-      </label>
-      <label class="flex items-center justify-between cursor-pointer">
-        <span class="text-sm text-fg-muted">
-          快速模式
-          <span class="text-[11px] text-primary/70">(无人工延迟)</span>
-        </span>
-        <GlassCheckbox v-model="engine.params.fast" :disabled="engine.running" />
-      </label>
+        <p class="text-[11px] text-fg-muted leading-relaxed">
+          慢速保留完整人工间隔；中速约快 2 倍；快速几乎不等待，触发平台限流的风险更高。
+        </p>
+      </div>
       <label class="flex items-center justify-between cursor-pointer">
         <span class="text-sm text-fg-muted">强制启动新浏览器</span>
         <GlassCheckbox v-model="engine.params.new_chrome" :disabled="engine.running" />

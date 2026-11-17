@@ -45,6 +45,7 @@ class StartParams(BaseModel):
     tag_sync: bool = False
     safe_mode: bool = True
     fast: bool = False
+    speed: str = "slow"
     job_type: str = ""
     degrees: list[str] = []
     experience: list[str] = []

@@ -21,7 +21,7 @@
         }
         if (matched) {
             card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            setTimeout(() => card.click(), 300);
+            setTimeout(() => card.click(), __CLICK_DELAY__);
             return JSON.stringify({found: true, index: i, total: cards.length});
         }
     }

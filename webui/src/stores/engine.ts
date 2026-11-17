@@ -86,6 +86,7 @@ export const useEngine = defineStore("engine", {
       browser_type: "chrome",
       safe_mode: true,
       fast: false,
+      speed: "slow",
       new_chrome: false,
       tag: null,
       keyword_search: true,

@@ -46,7 +46,7 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET / POST | `/api/config` | 浏览器路径、输出目录 |
-| GET / POST | `/api/start-params` | 运行参数持久化（白名单） |
+| GET / POST | `/api/start-params` | 运行参数持久化（白名单，含 `speed`: `slow` / `normal` / `fast`） |
 | POST | `/api/start-params/reset` | 重置默认 |
 | GET | `/api/cities` | 城市列表（缓存优先） |
 | POST | `/api/cities/refresh` | 页内 fetch `city.json` |

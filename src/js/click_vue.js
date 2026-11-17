@@ -11,7 +11,7 @@
                 if (typeof vm.clickJobCard === 'function') {
                     try {
                         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        await new Promise(r => setTimeout(r, 600));
+                        await new Promise(r => setTimeout(r, __SCROLL_WAIT__));
                         vm.clickJobCard(pd);
                         return JSON.stringify({ok: true, method: 'vue', index: 0});
                     } catch(e) {
@@ -33,7 +33,7 @@
             if (typeof vm.clickJobCard === 'function') {
                 try {
                     if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    await new Promise(r => setTimeout(r, 600));
+                    await new Promise(r => setTimeout(r, __SCROLL_WAIT__));
                     vm.clickJobCard(pd);
                     return JSON.stringify({ok: true, method: 'vue', index: 0});
                 } catch(e) {}
@@ -44,7 +44,7 @@
                     try {
                         // 如果是父组件点击，依然尝试滚动当前元素
                         if (el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        await new Promise(r => setTimeout(r, 600));
+                        await new Promise(r => setTimeout(r, __SCROLL_WAIT__));
                         cur.clickJobCard(pd);
                         return JSON.stringify({ok: true, method: 'vue', index: 0});
                     } catch(e) {}

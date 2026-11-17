@@ -185,6 +185,7 @@ def load_start_params() -> dict:
         "browser_type": "chrome",
         "safe_mode": True,
         "fast": False,
+        "speed": "slow",
         "new_chrome": False,
         "tag": None,
         "keyword_search": True,
@@ -204,6 +205,9 @@ def load_start_params() -> dict:
     for k, v in saved.items():
         if k in result:
             result[k] = v
+    # 旧配置没有 speed：按 fast / safe_mode 推导，避免老用户升级后被强制改回慢速
+    if "speed" not in saved:
+        result["speed"] = "fast" if (saved.get("fast") or saved.get("safe_mode") is False) else "slow"
     return result
 
 
@@ -216,7 +220,7 @@ def save_start_params(params: dict) -> bool:
     cfg = _read_yaml()
     # 只写已知字段，避免污染
     allowed = {
-        "count", "browser_type", "safe_mode", "fast", "new_chrome",
+        "count", "browser_type", "safe_mode", "fast", "speed", "new_chrome",
         "tag", "keyword_search", "query", "city_code", "city_name",
         "salary_min", "salary_max", "tag_sync", "onboarding_completed",
         "job_type", "degrees", "experience", "salary_fuzzy",

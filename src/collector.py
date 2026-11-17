@@ -25,7 +25,7 @@ def _trace_span(layer: str, fn: str, msg: str, scope: str = None):
 from src.config import get_config
 from src.core.browser import BrowserManager
 from src.core.extractor import VueExtractor, DetailPanelReader
-from src.utils.browser_behavior import BrowserBehavior
+from src.utils.browser_behavior import BrowserBehavior, resolve_speed
 from src.utils.salary import salary_in_range
 from src.storage.writer import OutputWriter
 from src.control import ConsoleController
@@ -281,11 +281,12 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                    browser_type="chrome", tag=None, controller=None,
                    keyword_search=True, query="", city_code=None, city_name=None,
                    salary_min=None, salary_max=None, tag_sync=False,
-                   job_type="", degrees=None, experience=None, salary_fuzzy=False):
+                   job_type="", degrees=None, experience=None, salary_fuzzy=False,
+                   speed=None):
     ctrl = controller or ConsoleController()
 
-    if fast:
-        safe_mode = False
+    # speed 显式传入时优先；旧的 fast / safe_mode 参数继续兼容
+    speed = resolve_speed(speed, safe_mode=safe_mode, fast=fast)
 
     query = (query or "").strip()
     # 关键词路线 vs 手动路线彻底解耦：关闭关键词搜索时清空 query，下游一律走手动路线
@@ -299,8 +300,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     ctrl.status("running")
     ctrl.log("=" * 60)
     ctrl.log(f"BOSS 直聘 V14 助手引擎 ({browser_type.capitalize()} 驱动)")
-    mode_str = "安全模式" if safe_mode else "快速模式"
-    ctrl.log(f"   目标: {count} 条 | 模式: {mode_str}")
+    speed_label = {"slow": "慢速", "normal": "中速", "fast": "快速"}[speed]
+    ctrl.log(f"   目标: {count} 条 | 速度: {speed_label}")
     ctrl.log("=" * 60)
 
     # 确定文件名前缀：自定义 tag > query 关键词
@@ -313,7 +314,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     browser = BrowserManager(config=config)
     browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效
     writer = OutputWriter(config["output_dir"], tag=out_tag)
-    behavior = BrowserBehavior()
+    behavior = BrowserBehavior(speed)
 
     ctrl.log(f"\n   已有数据: {len(writer.all_jobs)} 条")
     ctrl.log(f"   输出路径: {config['output_dir']}")
@@ -864,13 +865,10 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 writer.save_job(detail, total_idx)
                 success_count += 1
 
-                # === 数据读取后的延时等待（可被中止）===
-                if safe_mode:
+                # === 数据读取后的延时等待（按速度档位，可被中止）===
+                if behavior.should_scroll_detail():
                     behavior.scroll_detail(browser)
-                    delay = behavior.get_browse_delay()
-                    _interruptible_sleep(ctrl, delay)
-                else:
-                    _interruptible_sleep(ctrl, 0.5)
+                _interruptible_sleep(ctrl, behavior.get_browse_delay())
 
                 title = detail.get("title", "?")[:25]
                 salary = detail.get("salary", "?")
@@ -895,9 +893,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                     ctrl.log(f"      {msg}")
                 _emit_progress()
 
-            # === 间隔休息 ===
-            if safe_mode and success_count > 0 and success_count % 12 == 0:
-                behavior.step_break()
+            # === 间隔休息（按速度档位）===
+            behavior.maybe_step_break(success_count, lambda s: _interruptible_sleep(ctrl, s))
 
         # === for 结束后：如果没有任何进展（全部跳过），触发滚动加载更多 ===
         if success_count == prev_success_count and not ctrl.should_stop():
