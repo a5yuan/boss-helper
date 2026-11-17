@@ -14,6 +14,7 @@ import requests
 from src.config import get_config, load_ai_config
 from src.core.browser import BrowserManager
 from src.core.js_loader import load_js
+from src.ai.activity import is_offline, parse_active_days
 from src.tracking import Tracker, track_key
 
 CHAT_PAGE = "https://www.zhipin.com/web/geek/chat"
@@ -65,6 +66,15 @@ def _ensure_page(bm, prefer=("/job_detail/",)) -> bool:
             if key in (p.get("url") or ""):
                 return _reconnect(bm, p)
     return _reconnect(bm, pages[0])
+
+
+def read_activity(bm) -> dict:
+    """读详情页招聘者的活跃状态。读不到返回 ok=False，调用方应放行。"""
+    try:
+        raw = bm.get_value(bm.evaluate(load_js("read_boss_active.js")))
+        return json.loads(raw) if isinstance(raw, str) else (raw or {"ok": False})
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "reason": str(exc)}
 
 
 def goto(bm, url: str) -> bool:
@@ -255,7 +265,9 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
         if str(v.get("updated_at", "")).startswith(today)
         and v.get("status") in ("applied", "shortlisted")
     )
-    daily_limit = load_ai_config().get("daily_limit", 20)
+    _ai_cfg = load_ai_config()
+    daily_limit = _ai_cfg.get("daily_limit", 20)
+    max_inactive_days = _ai_cfg.get("max_inactive_days", 3)
     remaining = max(0, daily_limit - contacted_today)
 
     fresh = []
@@ -313,6 +325,22 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
                     log("     [!] 详情页加载超时，继续尝试")
             else:
                 log("     [!] 缺少 encryptJobId，无法直接打开详情页")
+
+            # 招聘者不在线就别点：对方收不到、还可能被自动回复筛掉
+            act = read_activity(bm)
+            if act.get("ok"):
+                days = parse_active_days(act.get("text", ""))
+                if days is None:
+                    log(f"     [.] 活跃时间读不出（{act.get('text', '')[:24]}），照常投")
+                elif is_offline(act.get("text", ""), max_inactive_days):
+                    stats["skipped"] += 1
+                    stats["outcomes"].append({"eid": eid, "ok": False,
+                                              "reason": f"招聘者已 {days} 天未活跃"})
+                    log(f"     [-] 跳过：招聘者已 {days} 天未活跃")
+                    time.sleep(random.uniform(*gap))
+                    continue
+                else:
+                    log(f"     [.] 招聘者 {days} 天内活跃过")
 
             chat = click_chat(bm)
             # 点中按钮后页面会整页跳到聊天页（旧 WS 失效），必须先等/重连

@@ -34,6 +34,7 @@ ai:
   resume_path: "resume.md"     # 单份简历兜底（md / txt，相对项目根目录）
   min_score: 60                # 低于该分不进入投递计划
   daily_limit: 20              # 每天最多点几次「立即沟通」，对方能收到通知，别贪多
+  max_inactive_days: 3         # 招聘者超过这么多天没活跃就跳过，不浪费沟通机会
   # 简历库：不同岗位方向用不同简历。命中关键词越多的越优先（标题权重 3 / 技能 2 / JD 1）
   # 配了 resumes 就按岗位自动选，resume_path 只在没有 resumes 时生效
   resumes:

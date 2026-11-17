@@ -94,3 +94,33 @@ class TestResumeLibrary(unittest.TestCase):
         first = lib.digest()
         self.assertEqual(first, lib.digest())
         self.assertEqual(len(first), 12)
+
+
+class TestActivity(unittest.TestCase):
+    def test_just_now(self):
+        from src.ai.activity import parse_active_days
+        self.assertEqual(parse_active_days("杨女士 在线 卓越际联 · 招聘专员"), 0)
+        self.assertEqual(parse_active_days("朱慧政 刚刚活跃 阿里云 · 招聘专员"), 0)
+        self.assertEqual(parse_active_days("今日活跃"), 0)
+
+    def test_days_weeks_months(self):
+        from src.ai.activity import parse_active_days
+        self.assertEqual(parse_active_days("5天前活跃"), 5)
+        self.assertEqual(parse_active_days("2周前活跃"), 14)
+        self.assertEqual(parse_active_days("3月前活跃"), 90)
+        self.assertEqual(parse_active_days("6个月前活跃"), 180)
+        self.assertEqual(parse_active_days("半年前活跃"), 180)
+
+    def test_unparsable_returns_none(self):
+        from src.ai.activity import parse_active_days
+        self.assertIsNone(parse_active_days(""))
+        self.assertIsNone(parse_active_days("外企德科数字 · 招聘专员"))
+
+    def test_offline_threshold(self):
+        from src.ai.activity import is_offline
+        self.assertFalse(is_offline("刚刚活跃", 3))
+        self.assertFalse(is_offline("昨日活跃", 3))
+        self.assertTrue(is_offline("5天前活跃", 3))
+        self.assertTrue(is_offline("半年前活跃", 3))
+        # 读不出活跃时间时不拦截，交给人判断
+        self.assertFalse(is_offline("外企德科数字 · 招聘专员", 3))

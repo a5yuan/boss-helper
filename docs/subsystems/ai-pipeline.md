@@ -20,6 +20,9 @@
 - **计划先落盘再执行**：`dispatch` 只读 plan 文件，不重新调模型；人不改计划就不执行。
 - **节奏由人定**：`dispatch` 的条间延时走 `--gap`，默认 8~15s，不允许并发开窗。
 - **失败不中断**：单条失败计入 `failed`，继续下一条；全部结束后仍要跳到聊天页。
+- **投前看活跃度**：点「立即沟通」之前先读详情页 `.job-boss-info` 的活跃描述
+  （`刚刚活跃 / 在线 / N天前活跃 / N月前活跃`），超过 `ai.max_inactive_days`（默认 3 天）
+  直接跳过——对方看不到，还可能被自动回复筛掉。读不出来时放行并记日志。
 - **每日额度 + 不重复联系**：`ai.daily_limit`（默认 20）是硬上限，按 `tracking.json`
   当天 `applied / shortlisted` 计数；已有记录的岗位直接跳过，绝不重复点。
 
@@ -39,6 +42,7 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 | `src/ai/resume.py` | 读简历（md/txt）+ `ResumeLibrary` 关键词路由，多份简历按方向选 |
 | `src/ai/screen.py` | 打分 + 判定 + 理由 + 招呼语，提示词在这里 |
 | `src/ai/pipeline.py` | 计划编排：读采集结果 → 调模型 → 写 `ai_plan_*.json`，带缓存复用 |
+| `src/ai/activity.py` | 招聘者活跃描述解析（`parse_active_days` / `is_offline`） |
 | `src/ai/dispatch.py` | 浏览器侧执行：开详情 → 点沟通 → 填字 → 跳聊天页 |
 | `src/js/fill_greeting.js` | 把 `__TEXT__` 写进最后一个可见输入框（只填不发） |
 | `src/ai/__main__.py` | CLI：`screen` / `dispatch` 两个子命令 |

@@ -265,4 +265,5 @@ def load_ai_config() -> dict:
         "default_resume": raw.get("default_resume") or "",
         "min_score": int(raw.get("min_score", 60)),
         "daily_limit": int(raw.get("daily_limit", 20)),
+        "max_inactive_days": int(raw.get("max_inactive_days", 3)),
     }
