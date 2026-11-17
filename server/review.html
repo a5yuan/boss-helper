@@ -64,6 +64,19 @@
   .toast.err{border-color:var(--bad);color:#ffb4ae}
   .toast.ok{border-color:var(--ok);color:#9ae6a5}
   .hint{color:var(--dim);font-size:12px;margin-top:8px}
+  .ai-btn{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer}
+  .ai-btn:hover{border-color:var(--ok)}
+  .ai-btn[disabled]{opacity:.5;cursor:default}
+  .ai-box{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0;background:var(--panel2)}
+  .ai-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .ai-score{font-size:18px;font-weight:700;padding:0 8px;border-radius:6px;background:#2a2f3a}
+  .ai-score.hi{color:#9ae6a5}.ai-score.mid{color:#ffd479}.ai-score.lo{color:#ffb4ae}
+  .ai-tag{font-size:12px;color:var(--dim)}
+  .ai-reasons{margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7}
+  .ai-reasons li{margin:0}
+  .ai-gaps{color:#ffb4ae}
+  .ai-greet{width:100%;box-sizing:border-box;margin-top:6px;background:#12151b;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px;line-height:1.6;resize:vertical;font-family:inherit}
+  .ai-mini{font-size:11px;color:var(--dim);margin-left:6px}
 </style>
 </head>
 <body>
@@ -83,6 +96,8 @@
       <div class="tab" data-f="applied">已投</div>
       <div class="tab" data-f="skipped">跳过</div>
     </div>
+    <button class="ai-btn" id="btn-ai-screen" title="按简历给这批岗位打分并生成招呼语">AI 筛选</button>
+    <button class="ai-btn" id="btn-ai-fill" title="逐条点沟通并把招呼语填进输入框（不发送）">AI 批量填</button>
   </div>
 </header>
 <main>
@@ -94,6 +109,7 @@
 <script>
 const $ = s => document.querySelector(s);
 const state = { jobs: [], tracking: {}, filter: 'all', q: '', smin: null, excl: '', idx: -1, list: [], files: [], file: null };
+const ai = { items: {}, exists: false, polling: null, busy: false };
 
 function toast(msg, kind) {
   const el = $('#toast');
@@ -149,7 +165,7 @@ function renderList() {
     const label = { new: '待看', shortlisted: '收藏', applied: '已投', skipped: '跳过' }[st];
     return `<div class="item ${i === state.idx ? 'sel' : ''}" data-i="${i}">
       <div class="r1"><span class="t">${esc(j.title || '(无标题)')}</span><span class="sal">${esc(j.salary || '')}</span></div>
-      <div class="r2"><span class="badge b-${st}">${label}</span>${esc(j.company || '')} · ${esc(j.location || '')}${sid ? '' : ' <span class="no-id">无ID</span>'}</div>
+      <div class="r2"><span class="badge b-${st}">${label}</span>${esc(j.company || '')} · ${esc(j.location || '')}${sid ? '' : ' <span class="no-id">无ID</span>'}${ai.items[keyOf(j)] ? ` <span class="ai-mini">AI ${ai.items[keyOf(j)].score}</span>` : ''}</div>
     </div>`;
   }).join('');
   el.querySelectorAll('.item').forEach(n => n.onclick = () => { state.idx = +n.dataset.i; render(); });
@@ -164,6 +180,21 @@ function renderDetail() {
   if (!j) { $('#detail').innerHTML = '<div class="empty">选择左侧岗位开始复核</div>'; return; }
   const st = statusOf(j), sid = keyOf(j);
   const chips = (arr, cls) => (arr || []).map(x => `<span class="chip">${esc(x)}</span>`).join('');
+  const a = ai.items[sid];
+  const cls = a ? (a.score >= 75 ? 'hi' : a.score >= 55 ? 'mid' : 'lo') : '';
+  const verdictText = a ? ({ apply: '建议投递', maybe: '可以聊聊', skip: '不建议投' }[a.verdict] || a.verdict) : '';
+  const aiBox = a ? `
+    <div class="ai-box">
+      <div class="ai-head">
+        <span class="ai-score ${cls}">${a.score}</span>
+        <b>${esc(verdictText)}</b>
+        <span class="ai-tag">简历：${esc(a.resume || '-')}</span>
+      </div>
+      ${(a.reasons || []).length ? `<ul class="ai-reasons">${a.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+      ${(a.gaps || []).length ? `<ul class="ai-reasons ai-gaps">${a.gaps.map(r => `<li>不匹配：${esc(r)}</li>`).join('')}</ul>` : ''}
+      <div class="ai-greet-label hint">招呼语（可编辑，失焦自动保存）</div>
+      <textarea class="ai-greet" rows="5" data-greet="${esc(sid)}">${esc(a.greeting || '')}</textarea>
+    </div>` : '';
   $('#detail').innerHTML = `
     <h2 class="d-title">${esc(j.title || '(无标题)')}</h2>
     <div class="d-sub">
@@ -172,6 +203,7 @@ function renderDetail() {
       ${esc(j.company || '')} ${esc(j.company_stage || '')} ${esc(j.company_scale || '')}
     </div>
     <div class="chips">${chips(j.skills)}${chips(j.welfare)}</div>
+    ${aiBox}
     <div class="sect"><h3>职位描述</h3><pre>${esc(j.jd || '（未采集到 JD）')}</pre></div>
     ${j.company_intro ? `<div class="sect"><h3>公司简介</h3><pre>${esc(j.company_intro)}</pre></div>` : ''}
     <div class="sect"><h3>招聘者</h3><div>${esc(j.boss_name || '')} · ${esc(j.boss_title || '')}</div></div>
@@ -185,6 +217,8 @@ function renderDetail() {
     <div class="hint">${j.encrypt_job_id ? '岗位ID: <code>' + esc(j.encrypt_job_id) + '</code>' : (j.security_id ? '仅有会话内 securityId（旧数据），刷新页面后定位会失效' : '这条记录缺少岗位 ID，请重新采集')}</div>
   `;
   $('#detail').querySelectorAll('button[data-act]').forEach(b => b.onclick = () => doAction(b.dataset.act));
+  const ta = $('#detail').querySelector('textarea[data-greet]');
+  if (ta) ta.onblur = () => saveGreeting(ta.dataset.greet, ta.value);
 }
 
 function render() { computeList(); renderStats(); renderList(); renderDetail(); }
@@ -237,7 +271,7 @@ function doAction(a) {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) {
     if (e.key === 'Escape') e.target.blur();
     return;
   }
@@ -252,6 +286,8 @@ document.addEventListener('keydown', e => {
 });
 
 $('#file').onchange = e => loadFile(e.target.value);
+$('#btn-ai-screen').onclick = () => aiScreen();
+$('#btn-ai-fill').onclick = () => aiFill();
 $('#q').oninput = e => { state.q = e.target.value; state.idx = 0; render(); };
 $('#smin').oninput = e => { state.smin = e.target.value ? parseFloat(e.target.value) : null; state.idx = 0; render(); };
 $('#excl').oninput = e => { state.excl = e.target.value; state.idx = 0; render(); };
@@ -278,7 +314,92 @@ async function loadFile(name) {
     state.idx = 0;
     renderFileSelect();
     render();
+    loadAiPlan();
   } catch (e) { toast('加载文件失败: ' + e.message, 'err'); }
+}
+
+async function loadAiPlan() {
+  try {
+    const r = await api('/api/ai/plan?file=' + encodeURIComponent(state.file || ''));
+    ai.exists = !!r.exists;
+    ai.items = {};
+    (r.items || []).forEach(it => { if (it.encrypt_job_id) ai.items[it.encrypt_job_id] = it; });
+    render();
+  } catch (e) { /* 没跑过就忽略 */ }
+}
+
+async function aiScreen() {
+  if (ai.busy) return;
+  if (!state.file) { toast('先选一个采集文件', 'err'); return; }
+  ai.busy = true; $('#btn-ai-screen').disabled = true;
+  toast('AI 筛选中，20 条大约 30 秒…');
+  try {
+    const r = await api('/api/ai/screen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: state.file }),
+    });
+    if (!r.ok) { toast('筛选失败: ' + (r.error || ''), 'err'); return; }
+    ai.exists = true;
+    ai.items = {};
+    (r.items || []).forEach(it => { if (it.encrypt_job_id) ai.items[it.encrypt_job_id] = it; });
+    const sm = r.summary || {};
+    toast(`筛完：${sm.planned || 0} 条可投 / ${sm.skipped || 0} 条跳过`, 'ok');
+    render();
+  } catch (e) { toast('筛选失败: ' + e.message, 'err'); }
+  finally { ai.busy = false; $('#btn-ai-screen').disabled = false; }
+}
+
+async function saveGreeting(eid, text) {
+  try {
+    const r = await api('/api/ai/greeting', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: state.file, encrypt_job_id: eid, greeting: text }),
+    });
+    if (r.ok) {
+      if (ai.items[eid]) ai.items[eid].greeting = r.item.greeting;
+      toast('招呼语已保存', 'ok');
+    } else toast('保存失败: ' + (r.error || ''), 'err');
+  } catch (e) { toast('保存失败: ' + e.message, 'err'); }
+}
+
+async function aiFill() {
+  if (ai.busy) return;
+  if (!state.file) { toast('先选一个采集文件', 'err'); return; }
+  const n = Object.values(ai.items).filter(x => x.status === 'planned' && x.dispatch !== 'done').length;
+  if (!n) { toast('没有待填充的岗位，先跑 AI 筛选', 'err'); return; }
+  if (!confirm(`将对 ${n} 条岗位点「立即沟通」并填入招呼语（不会发送）。
+会真实产生沟通记录，继续？`)) return;
+
+  ai.busy = true; $('#btn-ai-fill').disabled = true;
+  try {
+    const r = await api('/api/ai/fill', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: state.file }),
+    });
+    if (!r.ok) { toast('启动失败: ' + (r.error || ''), 'err'); return; }
+    toast(`开始填充 ${r.total} 条…`);
+    pollFill();
+  } catch (e) { toast('启动失败: ' + e.message, 'err'); ai.busy = false; $('#btn-ai-fill').disabled = false; }
+}
+
+function pollFill() {
+  clearInterval(ai.polling);
+  ai.polling = setInterval(async () => {
+    try {
+      const st = await api('/api/ai/fill/status');
+      const last = (st.log || []).slice(-1)[0] || '';
+      if (last) $('#btn-ai-fill').textContent = `填充中 ${st.done || 0}/${st.total}…`;
+      if (!st.running && st.finished) {
+        clearInterval(ai.polling);
+        ai.busy = false;
+        $('#btn-ai-fill').disabled = false;
+        $('#btn-ai-fill').textContent = 'AI 批量填';
+        toast(`填充完成：成功 ${st.ok} / 失败 ${st.failed}` + (st.error ? ' · ' + st.error : ''),
+              st.failed ? 'err' : 'ok');
+        loadAiPlan();
+      }
+    } catch (e) { /* 忽略单次失败 */ }
+  }, 1500);
 }
 
 async function boot() {
@@ -291,6 +412,7 @@ async function boot() {
     renderFileSelect();
     if (!state.jobs.length) { $('#list').innerHTML = '<div class="empty">还没有采集数据，先跑一次采集</div>'; return; }
     render();
+    loadAiPlan();
   } catch (e) { $('#list').innerHTML = '<div class="empty">加载失败: ' + esc(e.message) + '</div>'; }
 }
 boot();

@@ -2,6 +2,7 @@
 import asyncio
 import glob
 import json
+import threading
 import os
 import pathlib
 import time
@@ -568,6 +569,168 @@ def api_greet(body: GreetBody):
         return {"ok": True, "filled": text, "placeholder": raw.get("placeholder", "")}
 
     return _with_browser(_run, prefer_chat=True)
+
+
+
+# ===== AI 筛选 / 招呼语 / 批量填充 =====
+
+class AiScreenBody(BaseModel):
+    file: str = ""
+    limit: int | None = None
+    force: bool = False
+
+
+class AiFillBody(BaseModel):
+    file: str = ""
+    limit: int | None = None
+    gap_min: float = 8.0
+    gap_max: float = 15.0
+
+
+class AiGreetingBody(BaseModel):
+    file: str = ""
+    encrypt_job_id: str = ""
+    greeting: str = ""
+
+
+_ai_fill = {"running": False, "done": 0, "total": 0, "ok": 0, "failed": 0,
+            "log": [], "error": "", "finished": False}
+
+
+def _ai_plan_path(file_name: str) -> str:
+    from src.ai.pipeline import plan_path_for
+    cfg = get_config("chrome")
+    out = cfg.get("output_dir", "")
+    target = file_name or ""
+    if not target:
+        files = sorted(glob.glob(os.path.join(out, "jobs_*.json")), reverse=True)
+        if not files:
+            raise ValueError("还没有采集数据")
+        target = os.path.basename(files[0])
+    return plan_path_for(os.path.join(out, target))
+
+
+@app.get("/api/ai/plan")
+def api_ai_plan(file: str = ""):
+    """读取某个采集文件对应的 AI 计划（没跑过就返回 exists=false）。"""
+    from src.ai.pipeline import load_plan
+    try:
+        path = _ai_plan_path(file)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if not os.path.exists(path):
+        return {"ok": True, "exists": False, "file": os.path.basename(path), "items": []}
+    try:
+        plan = load_plan(path)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "exists": True, "file": os.path.basename(path), **plan}
+
+
+@app.post("/api/ai/screen")
+def api_ai_screen(body: AiScreenBody):
+    """对采集文件跑 AI 筛选，生成 ai_plan_*.json。"""
+    if session.running:
+        return {"ok": False, "error": "采集任务运行中，先停下再筛选"}
+    from src.ai.pipeline import build_plan, load_plan
+    cfg = get_config("chrome")
+    out = cfg.get("output_dir", "")
+    target = body.file
+    if not target:
+        files = sorted(glob.glob(os.path.join(out, "jobs_*.json")), reverse=True)
+        if not files:
+            return {"ok": False, "error": "还没有采集数据"}
+        target = os.path.basename(files[0])
+    src_path = os.path.join(out, target)
+    if not os.path.exists(src_path):
+        return {"ok": False, "error": f"文件不存在: {target}"}
+    try:
+        logs: list = []
+        build_plan(src_path, limit=body.limit, force=body.force, on_event=logs.append)
+        plan = load_plan(_ai_plan_path(target))
+    except Exception as exc:  # noqa: BLE001
+        tracer.entry("app.py:api_ai_screen", "AI 筛选失败", {"error": str(exc)}, scope="error")
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "file": target, "summary": plan.get("summary", {}),
+            "items": plan.get("items", []), "log": logs[-40:]}
+
+
+@app.post("/api/ai/greeting")
+def api_ai_greeting(body: AiGreetingBody):
+    """保存单条招呼语的编辑。"""
+    from src.ai.pipeline import load_plan, save_plan
+    try:
+        path = _ai_plan_path(body.file)
+        plan = load_plan(path)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    hit = None
+    for it in plan.get("items", []):
+        if it.get("encrypt_job_id") == body.encrypt_job_id:
+            hit = it
+            break
+    if not hit:
+        return {"ok": False, "error": "计划里没有这条岗位"}
+    hit["greeting"] = (body.greeting or "").strip()
+    hit["status"] = "planned" if hit["greeting"] else "skip"
+    save_plan(plan, path)
+    return {"ok": True, "item": hit}
+
+
+@app.post("/api/ai/fill")
+def api_ai_fill(body: AiFillBody):
+    """批量填充：逐条点「立即沟通」并把招呼语填进输入框（不发送）。"""
+    if session.running:
+        return {"ok": False, "error": "采集任务运行中，先停下再填充"}
+    if _ai_fill["running"]:
+        return {"ok": False, "error": "批量填充已在运行"}
+    from src.ai.dispatch import dispatch
+    from src.ai.pipeline import load_plan, save_plan
+    try:
+        path = _ai_plan_path(body.file)
+        plan = load_plan(path)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+    items = [it for it in plan.get("items", [])
+             if it.get("status") == "planned" and it.get("dispatch") != "done"]
+    if body.limit:
+        items = items[:body.limit]
+    if not items:
+        return {"ok": False, "error": "计划里没有待填充的岗位"}
+
+    _ai_fill.update({"running": True, "done": 0, "total": len(items), "ok": 0,
+                     "failed": 0, "log": [], "error": "", "finished": False})
+
+    def _run():
+        def _log(msg):
+            _ai_fill["log"].append(str(msg)[:200])
+            if len(_ai_fill["log"]) > 200:
+                _ai_fill["log"] = _ai_fill["log"][-100:]
+        try:
+            stats = dispatch(items, gap=(body.gap_min, body.gap_max), on_event=_log)
+            _ai_fill["ok"] = stats.get("ok", 0)
+            _ai_fill["failed"] = stats.get("failed", 0)
+            by_eid = {o["eid"]: o for o in stats.get("outcomes", [])}
+            for it in plan.get("items", []):
+                o = by_eid.get(it.get("encrypt_job_id"))
+                if o:
+                    it["dispatch"] = "done" if o["ok"] else "failed"
+            save_plan(plan, path)
+        except Exception as exc:  # noqa: BLE001
+            _ai_fill["error"] = str(exc)
+            tracer.entry("app.py:api_ai_fill", "批量填充失败", {"error": str(exc)}, scope="error")
+        finally:
+            _ai_fill["running"] = False
+            _ai_fill["finished"] = True
+
+    threading.Thread(target=_run, name="ai_fill", daemon=True).start()
+    return {"ok": True, "total": len(items)}
+
+
+@app.get("/api/ai/fill/status")
+def api_ai_fill_status():
+    return {"ok": True, **_ai_fill}
 
 
 @app.get("/review")

@@ -59,6 +59,11 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗 |
 | POST | `/api/greet` | 填招呼语 |
 | GET | `/review` | 复核队列页面 |
+| GET | `/api/ai/plan` | 读某个采集文件对应的 AI 计划（`exists=false` 表示还没筛过） |
+| POST | `/api/ai/screen` | 跑 AI 筛选并生成 `ai_plan_*.json`（采集运行中拒绝） |
+| POST | `/api/ai/greeting` | 保存单条招呼语的编辑 |
+| POST | `/api/ai/fill` | 后台线程批量填充（点沟通 + 填字，不发送） |
+| GET | `/api/ai/fill/status` | 批量填充分进度与日志 |
 | GET / DELETE | `/__debug_log` | 调试日志读写 |
 | GET / POST | `/api/debug/*` | 调试开关、scope、面板 |
 
