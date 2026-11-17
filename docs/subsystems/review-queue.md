@@ -14,6 +14,7 @@
 - **状态机**：`new → shortlisted / skipped / applied`，合法值由 `VALID_STATUS` 约束；未知状态抛 `ValueError`。
 - **`tracking.json` 原子写**：`tmp + os.replace`；默认路径 `output/tracking.json`。
 - **focus 顺序**：先按 `security_id` 在当前页面点卡片；点不到才用 `encrypt_job_id` 打开 `job_detail/<eid>.html`。
+- **focus 默认打开沟通窗**：定位成功后调用 `src/js/click_chat.js` 点「立即沟通 / 继续沟通」，只点按钮、不发送任何消息；按钮找不到时返回 `chat.ok=false`，不影响定位本身。请求体传 `open_chat=false` 可关闭。
 - **greet 只填不发送**：把文本写进最后一个可见 `textarea` / `contenteditable`，发送留给人工。
 - **采集运行时拒绝浏览器操作**：`_with_browser` 在 `session.running` 时返回错误。
 - **页面默认读最新文件，可切换历史文件**：`/api/results` 不带参数时取排序后的第一个 `jobs_*.json`；带 `date=<文件名>` 时取匹配文件。
@@ -40,13 +41,14 @@ src.tracking → src.config（延迟 import）
 
 ## 快捷键
 
-`↑/↓` 或 `j/k` 移动，`A` 已投，`L` 收藏，`S` 跳过，`Enter` 浏览器定位，`G` 填招呼语。输入框聚焦时不触发。
+`↑/↓` 或 `j/k` 移动，`A` 已投，`L` 收藏，`S` 跳过，`Enter` 定位并点「立即沟通」，`G` 填招呼语。输入框聚焦时不触发。
 
 ## 已知陷阱
 
 - **旧数据缺 `encrypt_job_id`**：只能在同一页面会话内用 `security_id` 定位，刷新后失效；前端会显示"无ID / 旧数据"提示，重新采集可修复。
 - **URL 回退会离开列表页**：`job_detail/<eid>.html` 打开后，原搜索结果页状态丢失；需要回列表时用浏览器后退。
 - **`prefer_chat=True`**：`/api/greet` 优先连最后一个 URL 含 `chat` 的 `type=page` 标签；没有聊天页时退回普通 BOSS 页，可能找不到输入框。
+- **「立即沟通」可能开新标签页**：`/api/focus` 的点击发生在原标签页，新聊天页由 `prefer_chat=True` 的 `/api/greet` 接管；若平台改成新开标签，按 `G` 前不要手动关掉聊天页。
 - **`shared_worker` 陷阱**：它的 URL 也可能含 `geek-chat`，`_with_browser` 已用 `type == "page"` 排除；新增页面选择逻辑时别退回去。
 - **默认招呼语**用岗位 `title` + 前两个 `skills`；改模板时保持"只填不发送"。
 - **状态按 ID 存**：同一岗位在不同 `jobs_*.json` 里重复出现时，状态会共享（这是期望行为）；切换文件不会重置状态。
@@ -58,6 +60,6 @@ src.tracking → src.config（延迟 import）
 2. 打开 `http://127.0.0.1:8848/review`，或点桌面端「复核队列」。
 3. 用顶部文件下拉切换历史文件，确认列表和统计随之变化。
 4. 依次按 `A` / `L` / `S`，刷新页面确认状态仍在。
-5. 按 `Enter`：卡片在页面上应点击并切前台；不在页面上应打开详情页。
+5. 按 `Enter`：卡片在页面上应点击并切前台；不在页面上应打开详情页；两种情况都应继续点「立即沟通」并打开聊天窗。
 6. 按 `G`：浏览器聊天输入框出现招呼语，未自动发送。
 7. 重启后端，确认 `/api/tracking` 仍返回之前的状态。

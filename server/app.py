@@ -330,6 +330,7 @@ class TrackBody(BaseModel):
 class FocusBody(BaseModel):
     security_id: str = ""
     encrypt_job_id: str = ""
+    open_chat: bool = True  # 定位后自动点「立即沟通」打开聊天窗
 
 
 class GreetBody(BaseModel):
@@ -435,6 +436,36 @@ def _wait_ready(bm, timeout: float = 10.0) -> bool:
     return False
 
 
+def _click_chat(bm, attempts: int = 6, interval: float = 0.35) -> dict:
+    """定位后点「立即沟通」打开聊天窗；面板渲染有延迟，最多重试约 2 秒。"""
+    from src.core.js_loader import load_js
+
+    js = load_js("click_chat.js")
+    last = {"ok": False, "reason": "未执行"}
+    for _ in range(attempts):
+        try:
+            res = bm.evaluate(js)
+            raw = bm.get_value(res)
+            if isinstance(raw, str):
+                try:
+                    last = json.loads(raw)
+                except Exception:
+                    last = {"ok": False, "reason": raw}
+            elif isinstance(raw, dict):
+                last = raw
+            else:
+                last = {"ok": False, "reason": "无效返回值"}
+        except Exception as exc:  # noqa: BLE001
+            # 点击可能已触发页面跳转并销毁执行上下文，此时无法再确认结果
+            last = {"ok": False, "reason": f"执行异常: {exc}"}
+            break
+        if last.get("ok"):
+            time.sleep(0.5)  # 给聊天窗口打开留出时间
+            return last
+        time.sleep(interval)
+    return last
+
+
 @app.post("/api/focus")
 def api_focus(body: FocusBody):
     if not (body.security_id or body.encrypt_job_id):
@@ -453,21 +484,25 @@ def api_focus(body: FocusBody):
             except Exception:
                 pass
         if clicked:
-            bm.bring_to_front()
-            return {"ok": True, "mode": "click", "index": pos, "total": total}
-
+            result = {"ok": True, "mode": "click", "index": pos, "total": total}
         # ② 不在页面上（列表已刷新/翻页）：用 encryptJobId 直接打开详情页
-        if eid:
+        elif eid:
             url = f"https://www.zhipin.com/job_detail/{eid}.html"
             bm.evaluate("location.href=" + json.dumps(url))
             _wait_ready(bm, 12)
-            bm.bring_to_front()
-            return {"ok": True, "mode": "url", "url": url}
+            result = {"ok": True, "mode": "url", "url": url}
+        else:
+            return {
+                "ok": False,
+                "error": "当前页面上找不到这张卡片，且该记录缺少 encryptJobId（旧数据）。重新采集一次即可修复。",
+            }
 
-        return {
-            "ok": False,
-            "error": "当前页面上找不到这张卡片，且该记录缺少 encryptJobId（旧数据）。重新采集一次即可修复。",
-        }
+        # ③ 定位后顺手点「立即沟通」，把聊天窗打开（只点按钮，不发消息）
+        if body.open_chat:
+            result["chat"] = _click_chat(bm)
+
+        bm.bring_to_front()
+        return result
 
     return _with_browser(_run)
 

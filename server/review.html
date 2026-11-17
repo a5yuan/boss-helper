@@ -179,7 +179,7 @@ function renderDetail() {
       <button class="ok" data-act="applied" ${st === 'applied' ? 'disabled' : ''}>已投 <kbd>A</kbd></button>
       <button data-act="shortlisted">收藏 <kbd>L</kbd></button>
       <button data-act="skipped">跳过 <kbd>S</kbd></button>
-      <button class="primary" data-act="focus" ${sid ? '' : 'disabled'}>在浏览器定位 <kbd>Enter</kbd></button>
+      <button class="primary" data-act="focus" ${sid ? '' : 'disabled'}>定位并沟通 <kbd>Enter</kbd></button>
       <button data-act="greet" ${sid ? '' : 'disabled'}>填招呼语 <kbd>G</kbd></button>
     </div>
     <div class="hint">${j.encrypt_job_id ? '岗位ID: <code>' + esc(j.encrypt_job_id) + '</code>' : (j.security_id ? '仅有会话内 securityId（旧数据），刷新页面后定位会失效' : '这条记录缺少岗位 ID，请重新采集')}</div>
@@ -214,7 +214,9 @@ async function focusJob() {
   if (!sid) { toast('缺少岗位 ID', 'err'); return; }
   try {
     const r = await api('/api/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idsOf(j)) });
-    toast(r.ok ? '已在浏览器中定位，窗口已切到前台' : ('定位失败: ' + (r.error || '未知')), r.ok ? 'ok' : 'err');
+    if (!r.ok) { toast('定位失败: ' + (r.error || '未知'), 'err'); return; }
+    if (r.chat && r.chat.ok) toast('已定位并点击「立即沟通」，聊天窗已打开', 'ok');
+    else toast('已定位，但没点到「立即沟通」' + (r.chat && r.chat.reason ? '：' + r.chat.reason : ''), 'err');
   } catch (e) { toast('定位失败: ' + e.message, 'err'); }
 }
 

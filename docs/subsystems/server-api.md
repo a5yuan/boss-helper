@@ -56,7 +56,7 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | GET | `/api/results` | 最新（或指定日期）岗位 JSON |
 | WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流 |
 | GET / POST | `/api/tracking` | 投递状态 |
-| POST | `/api/focus` | 浏览器定位 |
+| POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗 |
 | POST | `/api/greet` | 填招呼语 |
 | GET | `/review` | 复核队列页面 |
 | GET / DELETE | `/__debug_log` | 调试日志读写 |
