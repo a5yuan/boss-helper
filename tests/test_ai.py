@@ -124,3 +124,23 @@ class TestActivity(unittest.TestCase):
         self.assertTrue(is_offline("半年前活跃", 3))
         # 读不出活跃时间时不拦截，交给人判断
         self.assertFalse(is_offline("外企德科数字 · 招聘专员", 3))
+
+
+class TestQuota(unittest.TestCase):
+    def test_zero_means_unlimited(self):
+        from src.ai.dispatch import plan_quota
+        self.assertEqual(plan_quota(500, 0, 30), 30)
+
+    def test_negative_means_unlimited(self):
+        from src.ai.dispatch import plan_quota
+        self.assertEqual(plan_quota(500, -1, 7), 7)
+
+    def test_positive_limit_truncates(self):
+        from src.ai.dispatch import plan_quota
+        self.assertEqual(plan_quota(14, 20, 30), 6)
+        self.assertEqual(plan_quota(20, 20, 30), 0)
+        self.assertEqual(plan_quota(25, 20, 30), 0)
+
+    def test_want_smaller_than_quota(self):
+        from src.ai.dispatch import plan_quota
+        self.assertEqual(plan_quota(0, 20, 3), 3)

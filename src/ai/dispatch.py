@@ -68,6 +68,13 @@ def _ensure_page(bm, prefer=("/job_detail/",)) -> bool:
     return _reconnect(bm, pages[0])
 
 
+def plan_quota(contacted_today: int, daily_limit: int, want: int) -> int:
+    """今天还能点几家。daily_limit <= 0 表示不限。"""
+    if daily_limit <= 0:
+        return want
+    return max(0, min(want, daily_limit - contacted_today))
+
+
 def read_activity(bm) -> dict:
     """读详情页招聘者的活跃状态。读不到返回 ok=False，调用方应放行。"""
     try:
@@ -266,9 +273,10 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
         and v.get("status") in ("applied", "shortlisted")
     )
     _ai_cfg = load_ai_config()
-    daily_limit = _ai_cfg.get("daily_limit", 20)
+    daily_limit = _ai_cfg.get("daily_limit", 0)   # 0 或负数 = 不限
     max_inactive_days = _ai_cfg.get("max_inactive_days", 3)
-    remaining = max(0, daily_limit - contacted_today)
+    unlimited = daily_limit <= 0
+    remaining = plan_quota(contacted_today, daily_limit, len(todo))
 
     fresh = []
     for it in todo:
@@ -282,10 +290,13 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
         log(f"[*] 跳过 {len(todo) - len(fresh)} 条已联系过的岗位")
     todo = fresh[:remaining] if remaining else []
     stats["total"] = len(todo)
-    if remaining <= 0:
+    if not unlimited and remaining <= 0:
         log(f"[!] 今日已联系 {contacted_today} 家，达到上限 {daily_limit}，今天不再点")
         return stats
-    log(f"[*] 今日已联系 {contacted_today} 家，本次最多再点 {remaining} 家（上限 {daily_limit}）")
+    if unlimited:
+        log(f"[*] 今日已联系 {contacted_today} 家，未设上限，本次处理 {len(todo)} 家")
+    else:
+        log(f"[*] 今日已联系 {contacted_today} 家，本次最多再点 {remaining} 家（上限 {daily_limit}）")
 
     if dry:
         for i, it in enumerate(todo, 1):

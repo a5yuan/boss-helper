@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 简历库按岗位方向自动选择（`ai.resumes` + 关键词权重：标题 3 / 技能 2 / JD 1）
 - 复核页集成：「AI 筛选」「AI 批量填」按钮，详情区显示分数/理由/不匹配点与可编辑招呼语
 - `/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting`、`/api/ai/fill`、`/api/ai/fill/status`
-- `ai.daily_limit`（默认 20）：每日点「立即沟通」的硬上限；已联系过的岗位自动跳过
+- `ai.daily_limit`（默认 0 = 不限）：每日点「立即沟通」的可选上限；已联系过的岗位自动跳过
 - `ai.max_inactive_days`（默认 3）：投前读招聘者活跃状态，超期直接跳过
 
 - 采集速度档位 `slow` / `normal` / `fast`：调整点击前后等待、条间延时与间隔休息，不改变读取方式；前端「采集速度」下拉可选

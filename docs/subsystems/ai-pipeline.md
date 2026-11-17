@@ -23,8 +23,9 @@
 - **投前看活跃度**：点「立即沟通」之前先读详情页 `.job-boss-info` 的活跃描述
   （`刚刚活跃 / 在线 / N天前活跃 / N月前活跃`），超过 `ai.max_inactive_days`（默认 3 天）
   直接跳过——对方看不到，还可能被自动回复筛掉。读不出来时放行并记日志。
-- **每日额度 + 不重复联系**：`ai.daily_limit`（默认 20）是硬上限，按 `tracking.json`
-  当天 `applied / shortlisted` 计数；已有记录的岗位直接跳过，绝不重复点。
+- **不重复联系**：已有 `tracking.json` 记录的岗位直接跳过，绝不重复点。
+- **每日额度可选**：`ai.daily_limit` 默认 0（不限）；设成正数时按当天
+  `applied / shortlisted` 计数截断。
 
 ## 依赖方向
 
