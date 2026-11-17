@@ -12,6 +12,7 @@
 | 改 CDP 连接、标签页选择、超时、点击 | `docs/subsystems/browser-cdp.md` | 知道允许用哪些 CDP 命令，超时和断连怎么降级 |
 | 改 FastAPI 接口 / Session / 启动器 / Vue 前端 | `docs/subsystems/server-api.md` | 知道单任务约束、事件流和 dev/prod 两种启动方式 |
 | 改 `/review` 复核队列、投递状态、定位、招呼语 | `docs/subsystems/review-queue.md` | 知道 encryptJobId 与 securityId 的区别，以及状态机 |
+| 改 AI 筛选 / 招呼语生成 / 批量投递 | `docs/subsystems/ai-pipeline.md` | 知道 screen / dispatch 两段边界、只填不发送的约束，以及 plan 文件结构 |
 | 写新代码 / 重构 | `docs/code-standards.md` | 命名、依赖方向、错误处理、验证要求已明确 |
 | 改薪资解析 / 查重 / 投递状态等纯逻辑 | `docs/code-standards.md` + `tests/` | 先跑通现有测试，再补一条能覆盖改动的测试 |
 | 审查代码或 PR | `docs/code-standards.md` + `docs/review-checklist.md` | 能逐条对照，而不是凭感觉 |
@@ -57,6 +58,7 @@ docs/
     browser-cdp.md               ← CDP 浏览器控制
     server-api.md                ← FastAPI / Session / GUI 启动器 / 前端
     review-queue.md              ← 复核队列与投递跟踪
+    ai-pipeline.md               ← AI 筛选与招呼语
 prompts/
   nightly-review.md              ← 夜间复盘提示词
 tests/

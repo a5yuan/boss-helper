@@ -20,3 +20,26 @@ humanize:
   delay_deep: [8.0, 15.0]      # 15% 概率
   step_interval: 12             # 每 N 条休息一次
   step_break: [8.0, 18.0]      # 休息时长范围（秒）
+
+# ===== AI 筛选与招呼语 =====
+# 任意 OpenAI 兼容服务（本地代理 / DeepSeek / 通义 / OpenAI 均可）
+ai:
+  enabled: false
+  base_url: ""                 # 例: http://127.0.0.1:3425/v1 或 https://api.deepseek.com/v1
+  api_key: ""                  # 也可用环境变量 BOSS_AI_API_KEY
+  model: ""                    # 例: deepseek/deepseek-v4-pro
+  timeout: 90
+  temperature: 0.3
+  concurrency: 4               # 并发调模型的线程数，本地代理建议 <= 4
+  resume_path: "resume.md"     # 单份简历兜底（md / txt，相对项目根目录）
+  min_score: 60                # 低于该分不进入投递计划
+  # 简历库：不同岗位方向用不同简历。命中关键词越多的越优先（标题权重 3 / 技能 2 / JD 1）
+  # 配了 resumes 就按岗位自动选，resume_path 只在没有 resumes 时生效
+  resumes:
+    - label: "Agent/AI应用"
+      path: "D:/path/to/resume-agent.md"
+      keywords: ["agent", "rag", "llm", "大模型", "知识库", "多模态"]
+    - label: "前端开发"
+      path: "D:/path/to/resume-frontend.md"
+      keywords: ["前端", "vue", "react", "typescript", "h5", "小程序"]
+  default_resume: "Agent/AI应用"   # 平局或零命中时用这份

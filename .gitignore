@@ -67,3 +67,6 @@ build/
 #docs
 docs/git
 .alma-snapshots
+
+# 个人简历（AI 筛选输入，不进仓库）
+resume.md

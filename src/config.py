@@ -241,3 +241,27 @@ def get_config(browser_type="chrome"):
 
 # 默认导出 chrome 配置以保持向后兼容
 CONFIG = get_config("chrome")
+
+
+def load_ai_config() -> dict:
+    """AI 筛选 / 招呼语配置。密钥优先取 config.yaml 的 ai.api_key，其次环境变量。
+
+    config.yaml 已 gitignore，密钥不会进仓库；打包分发时用 BOSS_AI_API_KEY 注入。
+    """
+    raw = (_read_yaml().get("ai") or {})
+    resume_path = raw.get("resume_path") or os.path.join(PROJECT_DIR, "resume.md")
+    if not os.path.isabs(resume_path):
+        resume_path = os.path.join(PROJECT_DIR, resume_path)
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "base_url": raw.get("base_url") or os.environ.get("BOSS_AI_BASE_URL", ""),
+        "api_key": raw.get("api_key") or os.environ.get("BOSS_AI_API_KEY", ""),
+        "model": raw.get("model") or os.environ.get("BOSS_AI_MODEL", ""),
+        "timeout": float(raw.get("timeout", 90)),
+        "temperature": float(raw.get("temperature", 0.3)),
+        "concurrency": int(raw.get("concurrency", 4)),
+        "resume_path": resume_path,
+        "resumes": raw.get("resumes") or [],
+        "default_resume": raw.get("default_resume") or "",
+        "min_score": int(raw.get("min_score", 60)),
+    }
