@@ -7,10 +7,11 @@
 import json
 import random
 import time
+from datetime import datetime
 
 import requests
 
-from src.config import get_config
+from src.config import get_config, load_ai_config
 from src.core.browser import BrowserManager
 from src.core.js_loader import load_js
 from src.tracking import Tracker, track_key
@@ -242,6 +243,37 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
     log = on_event or (lambda msg: None)
     todo = [it for it in items if (it.get("greeting") or "").strip()]
     stats = {"ok": 0, "failed": 0, "skipped": 0, "total": len(todo), "outcomes": []}
+
+    # ---- 硬约束：每日额度 + 不重复联系 ----
+    # 点「立即沟通」对方能收到通知，还有人挂自动回复按学历筛人。
+    # 所以宁可少投，也不能把同一批岗位反复点、或一天点太多。
+    tracker_pre = Tracker()
+    today = datetime.now().strftime("%Y-%m-%d")
+    already = tracker_pre.all()
+    contacted_today = sum(
+        1 for v in already.values()
+        if str(v.get("updated_at", "")).startswith(today)
+        and v.get("status") in ("applied", "shortlisted")
+    )
+    daily_limit = load_ai_config().get("daily_limit", 20)
+    remaining = max(0, daily_limit - contacted_today)
+
+    fresh = []
+    for it in todo:
+        key = track_key(it.get("security_id") or "", it.get("encrypt_job_id") or "")
+        if (already.get(key) or {}).get("status") in ("applied", "shortlisted"):
+            stats["skipped"] += 1
+            continue
+        fresh.append(it)
+
+    if len(fresh) != len(todo):
+        log(f"[*] 跳过 {len(todo) - len(fresh)} 条已联系过的岗位")
+    todo = fresh[:remaining] if remaining else []
+    stats["total"] = len(todo)
+    if remaining <= 0:
+        log(f"[!] 今日已联系 {contacted_today} 家，达到上限 {daily_limit}，今天不再点")
+        return stats
+    log(f"[*] 今日已联系 {contacted_today} 家，本次最多再点 {remaining} 家（上限 {daily_limit}）")
 
     if dry:
         for i, it in enumerate(todo, 1):
