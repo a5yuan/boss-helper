@@ -118,6 +118,24 @@ Seen 1× (2026-11-18)
 
 ---
 
+### 往 BOSS 聊天框写内容必须走真实输入，并且 blur 一次才会存草稿
+
+两条都得满足：
+1. `innerText = text` + 手工 `dispatchEvent(new InputEvent('input'))` 只改了 DOM，
+   BOSS 的 Vue 状态没更新，草稿存不下来；
+2. 草稿是在 `focusout` 时写入的，填完直接 `location.href` 跳走等于白填。
+
+正确顺序：定位输入框 → CDP `Input.dispatchMouseEvent` 点击聚焦 → Ctrl+A + Backspace
+清空 → `Input.insertText` 写入 → `activeElement.blur()` → 等 2~3s 再导航。
+
+实测：不 blur 时切走回来内容为空（0 字）；blur 后切走回来仍在（165 字）。
+
+（本轮修复）
+
+Seen 1× (2026-11-18)
+
+---
+
 ## 复盘记录
 
 | 日期 | commit 数 | release 数 | 返工数 | 新增教训 | 备注 |

@@ -227,18 +227,90 @@ def open_conversation(bm, hints=None, timeout: float = 12.0) -> dict:
     return res | {"input_ready": False, "clicks": 3}
 
 
-def fill_greeting(bm, text: str, attempts: int = 6) -> dict:
-    js = load_js("fill_greeting.js", {"__TEXT__": json.dumps(text, ensure_ascii=False)})
+_LOCATE_INPUT_JS = r"""
+(() => {
+  const vis = el => {
+    const r = el.getBoundingClientRect();
+    return r.width > 40 && r.height > 8;
+  };
+  const nodes = Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).filter(vis);
+  if (!nodes.length) return JSON.stringify({ ok: false, reason: '页面上没有可输入的聊天框' });
+  const el = nodes[nodes.length - 1];
+  el.focus();
+  const r = el.getBoundingClientRect();
+  return JSON.stringify({
+    ok: true,
+    tag: el.tagName,
+    editable: el.getAttribute('contenteditable') === 'true',
+    x: Math.round(r.left + r.width / 2),
+    y: Math.round(r.top + r.height / 2),
+  });
+})()
+"""
+
+
+def _blur_input(bm) -> None:
+    """让输入框失焦。
+
+    BOSS 的草稿是在 focusout 时写入的——只填不失焦、直接跳走，草稿就丢了。
+    实测：填完直接导航，回来是空的；blur 一下再走，内容还在。
+    """
+    try:
+        bm.get_value(bm.evaluate(
+            "(() => { const a = document.activeElement;"
+            " if (a && a.blur) { a.blur(); return 'blurred'; } return 'none'; })()"))
+    except Exception:
+        pass
+
+
+def _key(bm, key, code, vk, modifiers=0):
+    bm.send_cdp("Input.dispatchKeyEvent",
+                {"type": "rawKeyDown", "modifiers": modifiers, "key": key,
+                 "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
+    bm.send_cdp("Input.dispatchKeyEvent",
+                {"type": "keyUp", "modifiers": modifiers, "key": key,
+                 "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
+
+
+def fill_greeting(bm, text: str, attempts: int = 4) -> dict:
+    """把招呼语写进聊天框。
+
+    必须走 CDP 的真实输入（Ctrl+A 清空 + Input.insertText），不能用
+    innerText + 手工 dispatch(input)：后者不更新 BOSS 的 Vue 状态，
+    草稿只在 DOM 里，一切换会话就没了。
+    """
     last = {"ok": False, "reason": "未执行"}
     for _ in range(attempts):
         try:
-            raw = bm.get_value(bm.evaluate(js))
-            last = json.loads(raw) if isinstance(raw, str) else (raw or last)
+            raw = bm.get_value(bm.evaluate(_LOCATE_INPUT_JS))
+            info = json.loads(raw) if isinstance(raw, str) else (raw or {})
         except Exception as exc:  # noqa: BLE001
-            last = {"ok": False, "reason": f"执行异常: {exc}"}
-        if last.get("ok"):
-            return last
-        time.sleep(0.6)
+            info = {"ok": False, "reason": f"定位输入框失败: {exc}"}
+
+        if not info.get("ok"):
+            last = info
+            time.sleep(0.8)
+            continue
+
+        try:
+            bm.bring_to_front()
+            bm.native_click(info["x"], info["y"])          # 聚焦
+            _key(bm, "a", "KeyA", 65, modifiers=2)         # Ctrl+A 全选
+            _key(bm, "Backspace", "Backspace", 8)          # 清空
+            bm.send_cdp("Input.insertText", {"text": text})  # 真实输入
+            time.sleep(0.3)
+            got = bm.get_value(bm.evaluate(
+                "(() => { const n = document.querySelector('[contenteditable=\"true\"]');"
+                " if (n) return (n.innerText || '').length;"
+                " const t = document.querySelector('textarea');"
+                " return t ? (t.value || '').length : -1; })()"))
+            got = got.get("value") if isinstance(got, dict) else got
+            if isinstance(got, int) and got > 20:
+                return {"ok": True, "tag": info["tag"], "length": got}
+            last = {"ok": False, "reason": f"输入后长度异常: {got}"}
+        except Exception as exc:  # noqa: BLE001
+            last = {"ok": False, "reason": f"输入失败: {exc}"}
+        time.sleep(0.8)
     return last
 
 
@@ -271,7 +343,7 @@ def open_browser(browser_type: str = "chrome") -> BrowserManager:
 
 def dispatch(items: list, browser_type: str = "chrome", gap=None,
              on_event=None, dry: bool = False, interactive: bool = False,
-             wait_open: float = 90.0) -> dict:
+             wait_open: float = 90.0, force_refill: bool = False) -> dict:
     """执行计划。items 需含 encrypt_job_id / title / greeting。
 
     dry=True 只打印将要做什么，不连接浏览器。
@@ -303,7 +375,7 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
     fresh = []
     for it in todo:
         key = track_key(it.get("security_id") or "", it.get("encrypt_job_id") or "")
-        if (already.get(key) or {}).get("status") in ("applied", "shortlisted"):
+        if not force_refill and (already.get(key) or {}).get("status") in ("applied", "shortlisted"):
             stats["skipped"] += 1
             continue
         fresh.append(it)
@@ -315,6 +387,8 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
     if not unlimited and remaining <= 0:
         log(f"[!] 今日已联系 {contacted_today} 家，达到上限 {daily_limit}，今天不再点")
         return stats
+    if force_refill:
+        log("[*] --force-refill：跳过「已联系过」过滤，只为补回草稿")
     if unlimited:
         log(f"[*] 今日已联系 {contacted_today} 家，未设上限，本次处理 {len(todo)} 家")
     else:
@@ -431,7 +505,8 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
                 stats["ok"] += 1
                 stats["outcomes"].append({"eid": eid, "ok": True, "reason": "",
                                           "at": datetime.now().isoformat(timespec="seconds")})
-                time.sleep(_ai_cfg.get("fill_settle", 2.5))  # 等草稿落库，太快会丢
+                _blur_input(bm)                              # 失焦才会触发草稿保存
+                time.sleep(_ai_cfg.get("fill_settle", 2.5))  # 再等一会儿，别急着导航
                 log(f"     {_ts()} [+] 已填 {filled.get('length', len(it['greeting']))} 字，未发送")
                 try:
                     tracker.set(track_key(sid, eid), "shortlisted", it["greeting"][:80])

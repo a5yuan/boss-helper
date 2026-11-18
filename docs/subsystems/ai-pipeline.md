@@ -81,6 +81,10 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 - **点沟通可能开新标签**：点完要按 URL 含 `chat` 找 `type=page` 的标签重连，`shared_worker` 必须排除。
 - **聊天输入框是 contenteditable，不是 textarea**：判断"输入框就绪"必须同时查 `textarea` 和 `[contenteditable="true"]` 且尺寸 > 40×8；只查 textarea 会把搜索结果页的隐藏输入框当成聊天框。
 - **「立即沟通」外层有 `div.btn-startchat-wrap`**：`element.click()` 点的是壳子，不触发跳转；必须用 CDP `Input.dispatchMouseEvent` 点坐标（`locate_chat_button.js` 只定位、不点击）。
+- **草稿是失焦时才存的**：填完直接 `location.href` 跳走，草稿会丢（回来是空的）。
+  必须先在页面上 blur 一次再导航；实测 blur 后 2s 再切就稳了。
+- **输入要走真实通道**：`innerText` + 手工 `dispatch(input)` 不更新 BOSS 的 Vue 状态，
+  草稿同样存不住。用 CDP 的 `Input.insertText`（先 Ctrl+A 清空）。
 - **填完别立刻导航**：平台存草稿有延迟，填完等 2.5s 再走，否则草稿丢失；已在聊天页时收尾不要再 `location.href` 一次。
 - **详情页返回空 JD**：BOSS 对未登录 / 频繁访问会返回脱敏内容；`screen` 遇到 `jd` 为空应直接判 `skip` 并在理由里写明，不要硬编招呼语。
 

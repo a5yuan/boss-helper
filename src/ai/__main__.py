@@ -77,7 +77,8 @@ def cmd_dispatch(args):
             return 0
 
     stats = dispatch(items, browser_type=args.browser, gap=gap, on_event=print,
-                     interactive=args.interactive, wait_open=args.wait_open)
+                     interactive=args.interactive, wait_open=args.wait_open,
+                     force_refill=args.force_refill)
     print(f"\n完成: 成功 {stats['ok']} / 失败 {stats['failed']} / 跳过 {stats['skipped']}")
     # 回写执行状态与时间，否则重跑会把同一批人再点一遍
     apply_outcomes(plan, stats)
@@ -110,6 +111,8 @@ def main():
     p.add_argument("--gap-max", type=float, default=15.0)
     p.add_argument("--dry", action="store_true", help="只打印，不连浏览器")
     p.add_argument("--yes", action="store_true", help="跳过确认")
+    p.add_argument("--force-refill", action="store_true",
+                   help="跳过「已联系过」过滤，重新填一遍（只用于补回草稿，不会再发消息）")
     p.add_argument("-b", "--browser", default="chrome", choices=["chrome", "edge"],
                    help="采集用的浏览器，默认 chrome；连不上会自动试另一个")
     p.add_argument("--interactive", action="store_true",
