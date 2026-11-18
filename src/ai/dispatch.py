@@ -242,17 +242,31 @@ def fill_greeting(bm, text: str, attempts: int = 6) -> dict:
     return last
 
 
-def open_browser(browser_type: str = "chrome") -> BrowserManager:
+def _connect_one(browser_type: str) -> BrowserManager:
     cfg = get_config(browser_type)
     bm = BrowserManager(config=cfg)
     if not bm.try_connect_existing():
-        raise DispatchError("没有可连接的浏览器。先启动程序并登录 BOSS，再执行 dispatch。")
+        raise DispatchError(f"没有可连接的 {browser_type}")
     page = bm.find_boss_page()
     if not page:
-        raise DispatchError("浏览器里没有 zhipin.com 页面，请先打开并登录 BOSS。")
+        raise DispatchError(f"{browser_type} 里没有 zhipin.com 页面")
     if not bm.connect_ws(page.get("webSocketDebuggerUrl", "")):
-        raise DispatchError("WebSocket 连接失败")
+        raise DispatchError(f"{browser_type} WebSocket 连接失败")
     return bm
+
+
+def open_browser(browser_type: str = "chrome") -> BrowserManager:
+    """连已启动的浏览器。采集用哪个浏览器不确定时，两个都试一遍。"""
+    order = [browser_type] + [b for b in ("chrome", "edge") if b != browser_type]
+    errors = []
+    for bt in order:
+        try:
+            return _connect_one(bt)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(str(exc))
+    raise DispatchError(
+        "没有可连接的浏览器（试过 " + " / ".join(order) + "）：" + "；".join(errors)
+    )
 
 
 def dispatch(items: list, browser_type: str = "chrome", gap=None,

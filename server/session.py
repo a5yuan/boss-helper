@@ -9,7 +9,7 @@ from src.collector import run_collection
 from .tracer import tracer
 
 
-def ai_after_collect(ctrl) -> None:
+def ai_after_collect(ctrl, browser_type: str = "chrome") -> None:
     """采集结束后按 ai.auto_after_collect 自动筛选 / 填充。
 
     off    不做任何事
@@ -48,7 +48,7 @@ def ai_after_collect(ctrl) -> None:
 
     ctrl.log(f"[AI] 开始填充 {len(todo)} 条（只填不发）")
     try:
-        stats = dispatch(todo, on_event=ctrl.log)
+        stats = dispatch(todo, browser_type=browser_type, on_event=ctrl.log)
 
         # 回写执行状态：不回写的话计划永远显示 todo，下次会重复处理
         apply_outcomes(plan, stats)
@@ -87,7 +87,7 @@ class Session:
                     scope="start-collection"
                 )
                 if not ctrl.should_stop():
-                    ai_after_collect(ctrl)
+                    ai_after_collect(ctrl, params.get("browser_type", "chrome"))
             except Exception as exc:  # noqa: BLE001
                 tracer.entry("session.py:_run", "分析线程异常", {"error": str(exc)}, scope="error")
                 ctrl.log(f"[ERROR] 分析线程异常: {exc}", level="error")

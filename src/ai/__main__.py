@@ -76,7 +76,7 @@ def cmd_dispatch(args):
             print("已取消")
             return 0
 
-    stats = dispatch(items, gap=gap, on_event=print,
+    stats = dispatch(items, browser_type=args.browser, gap=gap, on_event=print,
                      interactive=args.interactive, wait_open=args.wait_open)
     print(f"\n完成: 成功 {stats['ok']} / 失败 {stats['failed']} / 跳过 {stats['skipped']}")
     # 回写执行状态与时间，否则重跑会把同一批人再点一遍
@@ -110,6 +110,8 @@ def main():
     p.add_argument("--gap-max", type=float, default=15.0)
     p.add_argument("--dry", action="store_true", help="只打印，不连浏览器")
     p.add_argument("--yes", action="store_true", help="跳过确认")
+    p.add_argument("-b", "--browser", default="chrome", choices=["chrome", "edge"],
+                   help="采集用的浏览器，默认 chrome；连不上会自动试另一个")
     p.add_argument("--interactive", action="store_true",
                    help="会话列表点不开时，转人工点会话，脚本等着填")
     p.add_argument("--wait-open", type=float, default=90.0,
