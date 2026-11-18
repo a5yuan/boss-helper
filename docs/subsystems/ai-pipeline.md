@@ -18,7 +18,9 @@
   平局或零命中走 `default_resume`。计划里每条都记 `resume` 字段，方便事后核对。
 - **不进仓库的密钥**：`ai.api_key` 只写在 `config.yaml`（已 gitignore）或环境变量 `BOSS_AI_API_KEY`。
 - **计划先落盘再执行**：`dispatch` 只读 plan 文件，不重新调模型；人不改计划就不执行。
-- **节奏由人定**：`dispatch` 的条间延时走 `--gap`，默认 8~15s，不允许并发开窗。
+- **节奏可配**：`ai.fill_gap_min` / `ai.fill_gap_max`（默认 5~10s）控制条间隔，
+  `ai.fill_settle`（默认 2s）控制填完到切下一条的等待；CLI 用 `--gap-min/--gap-max` 覆盖。
+  单条实际耗时 ≈ 页面加载 4s + 点击 1s + 填字 0.5s + settle + 间隔。
 - **失败不中断**：单条失败计入 `failed`，继续下一条；全部结束后仍要跳到聊天页。
 - **投前看活跃度**：点「立即沟通」之前先读详情页 `.job-boss-info` 的活跃描述
   （`刚刚活跃 / 在线 / N天前活跃 / N月前活跃`），超过 `ai.max_inactive_days`（默认 3 天）

@@ -583,8 +583,8 @@ class AiScreenBody(BaseModel):
 class AiFillBody(BaseModel):
     file: str = ""
     limit: int | None = None
-    gap_min: float = 8.0
-    gap_max: float = 15.0
+    gap_min: float | None = None   # 留空则用 config.yaml 的 ai.fill_gap_*
+    gap_max: float | None = None
 
 
 class AiGreetingBody(BaseModel):
@@ -708,7 +708,8 @@ def api_ai_fill(body: AiFillBody):
             if len(_ai_fill["log"]) > 200:
                 _ai_fill["log"] = _ai_fill["log"][-100:]
         try:
-            stats = dispatch(items, gap=(body.gap_min, body.gap_max), on_event=_log)
+            gap = (body.gap_min, body.gap_max) if (body.gap_min and body.gap_max) else None
+            stats = dispatch(items, gap=gap, on_event=_log)
             _ai_fill["ok"] = stats.get("ok", 0)
             _ai_fill["failed"] = stats.get("failed", 0)
             by_eid = {o["eid"]: o for o in stats.get("outcomes", [])}

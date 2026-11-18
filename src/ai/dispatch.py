@@ -255,7 +255,7 @@ def open_browser(browser_type: str = "chrome") -> BrowserManager:
     return bm
 
 
-def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
+def dispatch(items: list, browser_type: str = "chrome", gap=None,
              on_event=None, dry: bool = False, interactive: bool = False,
              wait_open: float = 90.0) -> dict:
     """执行计划。items 需含 encrypt_job_id / title / greeting。
@@ -278,6 +278,9 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
         and v.get("status") in ("applied", "shortlisted")
     )
     _ai_cfg = load_ai_config()
+    if gap is None:
+        gap = (_ai_cfg.get("fill_gap_min", 8.0), _ai_cfg.get("fill_gap_max", 15.0))
+    gap = (float(gap[0]), float(gap[1]))
     daily_limit = _ai_cfg.get("daily_limit", 0)   # 0 或负数 = 不限
     max_inactive_days = _ai_cfg.get("max_inactive_days", 3)
     unlimited = daily_limit <= 0
@@ -414,7 +417,7 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
                 stats["ok"] += 1
                 stats["outcomes"].append({"eid": eid, "ok": True, "reason": "",
                                           "at": datetime.now().isoformat(timespec="seconds")})
-                time.sleep(2.5)  # 等平台把草稿存下来，太快导航会丢
+                time.sleep(_ai_cfg.get("fill_settle", 2.5))  # 等草稿落库，太快会丢
                 log(f"     {_ts()} [+] 已填 {filled.get('length', len(it['greeting']))} 字，未发送")
                 try:
                     tracker.set(track_key(sid, eid), "shortlisted", it["greeting"][:80])

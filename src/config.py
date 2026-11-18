@@ -266,4 +266,7 @@ def load_ai_config() -> dict:
         "min_score": int(raw.get("min_score", 60)),
         "daily_limit": int(raw.get("daily_limit", 0)),  # 0 = 不限制
         "max_inactive_days": int(raw.get("max_inactive_days", 3)),
+        "fill_gap_min": float(raw.get("fill_gap_min", 8.0)),
+        "fill_gap_max": float(raw.get("fill_gap_max", 15.0)),
+        "fill_settle": float(raw.get("fill_settle", 2.5)),
     }
