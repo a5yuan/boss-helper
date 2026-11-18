@@ -41,6 +41,16 @@ src/*  →  server.tracer（只在函数内延迟 import）
 - 一次性脚本可以内联在 Python 字符串里，但必须带中文注释说明它依赖的页面结构，且失败时返回 `{ok:false, reason}` 而不是抛异常。
 - JS 访问 Vue 内部状态必须做防御（`try/catch`、空值判断）；页面结构变化时返回明确失败，不要让 Python 侧 `json.loads` 崩。
 
+## 浏览器输入
+
+- **往聊天框 / 输入框写内容，只允许走 `src/utils/chat_input.fill_chat_input`。**
+  直接 `el.innerText = ...` / `el.value = ...` 只改 DOM，不触发框架的输入处理，
+  页面状态没更新，草稿存不下来；填完还必须失焦——BOSS 的草稿是在 `focusout`
+  时写入的，填完直接导航等于白填。
+- 写入用 CDP `Input.insertText`（先 Ctrl+A 清空），不要手工 `dispatchEvent`。
+- `tests/test_input_policy.py` 会扫描 `src/` 与 `server/`，发现绕过的写法直接失败。
+  新增合法写入入口时，必须同时更新该测试的白名单与原因说明，不允许只改白名单。
+
 ## 错误处理
 
 - 对外部系统的调用（CDP、文件、浏览器进程、HTTP）必须有超时和明确的失败分支。

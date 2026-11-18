@@ -16,6 +16,7 @@ from src.core.browser import BrowserManager
 from src.core.js_loader import load_js
 from src.ai.activity import is_offline, parse_active_days
 from src.tracking import Tracker, track_key
+from src.utils import chat_input
 
 CHAT_PAGE = "https://www.zhipin.com/web/geek/chat"
 
@@ -227,89 +228,18 @@ def open_conversation(bm, hints=None, timeout: float = 12.0) -> dict:
     return res | {"input_ready": False, "clicks": 3}
 
 
-_LOCATE_INPUT_JS = r"""
-(() => {
-  const vis = el => {
-    const r = el.getBoundingClientRect();
-    return r.width > 40 && r.height > 8;
-  };
-  const nodes = Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).filter(vis);
-  if (!nodes.length) return JSON.stringify({ ok: false, reason: '页面上没有可输入的聊天框' });
-  const el = nodes[nodes.length - 1];
-  el.focus();
-  const r = el.getBoundingClientRect();
-  return JSON.stringify({
-    ok: true,
-    tag: el.tagName,
-    editable: el.getAttribute('contenteditable') === 'true',
-    x: Math.round(r.left + r.width / 2),
-    y: Math.round(r.top + r.height / 2),
-  });
-})()
-"""
-
-
 def _blur_input(bm) -> None:
-    """让输入框失焦。
-
-    BOSS 的草稿是在 focusout 时写入的——只填不失焦、直接跳走，草稿就丢了。
-    实测：填完直接导航，回来是空的；blur 一下再走，内容还在。
-    """
-    try:
-        bm.get_value(bm.evaluate(
-            "(() => { const a = document.activeElement;"
-            " if (a && a.blur) { a.blur(); return 'blurred'; } return 'none'; })()"))
-    except Exception:
-        pass
-
-
-def _key(bm, key, code, vk, modifiers=0):
-    bm.send_cdp("Input.dispatchKeyEvent",
-                {"type": "rawKeyDown", "modifiers": modifiers, "key": key,
-                 "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
-    bm.send_cdp("Input.dispatchKeyEvent",
-                {"type": "keyUp", "modifiers": modifiers, "key": key,
-                 "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})
+    """失焦——BOSS 的草稿靠 focusout 保存。"""
+    chat_input.blur(bm)
 
 
 def fill_greeting(bm, text: str, attempts: int = 4) -> dict:
-    """把招呼语写进聊天框。
-
-    必须走 CDP 的真实输入（Ctrl+A 清空 + Input.insertText），不能用
-    innerText + 手工 dispatch(input)：后者不更新 BOSS 的 Vue 状态，
-    草稿只在 DOM 里，一切换会话就没了。
-    """
+    """填招呼语。实际写入统一走 src/utils/chat_input.fill_chat_input。"""
     last = {"ok": False, "reason": "未执行"}
     for _ in range(attempts):
-        try:
-            raw = bm.get_value(bm.evaluate(_LOCATE_INPUT_JS))
-            info = json.loads(raw) if isinstance(raw, str) else (raw or {})
-        except Exception as exc:  # noqa: BLE001
-            info = {"ok": False, "reason": f"定位输入框失败: {exc}"}
-
-        if not info.get("ok"):
-            last = info
-            time.sleep(0.8)
-            continue
-
-        try:
-            bm.bring_to_front()
-            bm.native_click(info["x"], info["y"])          # 聚焦
-            _key(bm, "a", "KeyA", 65, modifiers=2)         # Ctrl+A 全选
-            _key(bm, "Backspace", "Backspace", 8)          # 清空
-            bm.send_cdp("Input.insertText", {"text": text})  # 真实输入
-            time.sleep(0.3)
-            got = bm.get_value(bm.evaluate(
-                "(() => { const n = document.querySelector('[contenteditable=\"true\"]');"
-                " if (n) return (n.innerText || '').length;"
-                " const t = document.querySelector('textarea');"
-                " return t ? (t.value || '').length : -1; })()"))
-            got = got.get("value") if isinstance(got, dict) else got
-            if isinstance(got, int) and got > 20:
-                return {"ok": True, "tag": info["tag"], "length": got}
-            last = {"ok": False, "reason": f"输入后长度异常: {got}"}
-        except Exception as exc:  # noqa: BLE001
-            last = {"ok": False, "reason": f"输入失败: {exc}"}
+        last = chat_input.fill_chat_input(bm, text)
+        if last.get("ok"):
+            return last
         time.sleep(0.8)
     return last
 

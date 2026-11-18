@@ -508,30 +508,6 @@ def api_focus(body: FocusBody):
     return _with_browser(_run)
 
 
-_GREET_JS = r"""
-(() => {
-  const text = __TEXT__;
-  const vis = el => { const r = el.getBoundingClientRect(); return r.width > 40 && r.height > 8; };
-  const nodes = Array.from(document.querySelectorAll('textarea, [contenteditable="true"]')).filter(vis);
-  if (!nodes.length) {
-    return JSON.stringify({ok:false, reason:'页面上没有可输入的聊天框，请先在浏览器里点「立即沟通」打开聊天'});
-  }
-  const el = nodes[nodes.length - 1];
-  el.focus();
-  if (el.tagName === 'TEXTAREA') {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(el, text);
-  } else {
-    el.innerText = text;
-    el.dispatchEvent(new InputEvent('input', {bubbles:true, data:text, inputType:'insertText'}));
-  }
-  el.dispatchEvent(new Event('input', {bubbles:true}));
-  el.dispatchEvent(new Event('change', {bubbles:true}));
-  return JSON.stringify({ok:true, tag: el.tagName, placeholder: el.getAttribute('placeholder') || ''});
-})()
-"""
-
-
 def _default_greeting(job: dict) -> str:
     title = (job.get("title") or "这个岗位").strip()
     skills = [s for s in (job.get("skills") or []) if s][:2]
@@ -552,21 +528,13 @@ def api_greet(body: GreetBody):
     text = (body.text or "").strip() or _default_greeting(job)
 
     def _run(bm, page):
-        js = _GREET_JS.replace("__TEXT__", json.dumps(text, ensure_ascii=False))
-        res = bm.evaluate(js)
-        exc = (res.get("result") or {}).get("exceptionDetails")
-        if exc:
-            desc = (exc.get("exception") or {}).get("description") or exc.get("text") or "JS 执行异常"
-            return {"ok": False, "error": desc}
-        raw = bm.get_value(res)
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except Exception:
-                raw = {"ok": False, "reason": raw}
-        if not raw.get("ok"):
-            return {"ok": False, "error": raw.get("reason") or "填充失败"}
-        return {"ok": True, "filled": text, "placeholder": raw.get("placeholder", "")}
+        from src.utils.chat_input import fill_chat_input
+
+        res = fill_chat_input(bm, text)
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("reason") or "填充失败"}
+        time.sleep(0.5)  # 给平台存草稿留点时间（草稿是 focusout 后异步写的）
+        return {"ok": True, "filled": text, "length": res.get("length")}
 
     return _with_browser(_run, prefer_chat=True)
 
