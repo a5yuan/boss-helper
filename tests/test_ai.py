@@ -164,3 +164,33 @@ class TestCarryDispatch(unittest.TestCase):
         from src.ai.pipeline import carry_dispatch
         out = carry_dispatch({"title": "x"}, {"dispatch": "todo"})
         self.assertEqual(out["dispatch"], "todo")
+
+
+class TestApplyOutcomes(unittest.TestCase):
+    def _plan(self):
+        return {"items": [
+            {"encrypt_job_id": "a", "dispatch": "todo"},
+            {"encrypt_job_id": "b", "dispatch": "todo"},
+            {"encrypt_job_id": "c", "dispatch": "todo"},
+        ]}
+
+    def test_merges_ok_and_failed(self):
+        from src.ai.pipeline import apply_outcomes
+        plan = self._plan()
+        stats = {"outcomes": [
+            {"eid": "a", "ok": True, "reason": "", "at": "2026-11-18T10:09:41"},
+            {"eid": "b", "ok": False, "reason": "没点到「立即沟通」", "at": "2026-11-18T10:09:50"},
+        ]}
+        n = apply_outcomes(plan, stats)
+        self.assertEqual(n, 2)
+        self.assertEqual(plan["items"][0]["dispatch"], "done")
+        self.assertEqual(plan["items"][0]["dispatch_at"], "2026-11-18T10:09:41")
+        self.assertEqual(plan["items"][1]["dispatch"], "failed")
+        self.assertEqual(plan["items"][1]["dispatch_note"], "没点到「立即沟通」")
+        self.assertEqual(plan["items"][2]["dispatch"], "todo")   # 没跑到的保持原状
+
+    def test_empty_stats_is_noop(self):
+        from src.ai.pipeline import apply_outcomes
+        plan = self._plan()
+        self.assertEqual(apply_outcomes(plan, {}), 0)
+        self.assertEqual(plan["items"][0]["dispatch"], "todo")

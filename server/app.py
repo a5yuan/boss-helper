@@ -712,14 +712,8 @@ def api_ai_fill(body: AiFillBody):
             stats = dispatch(items, gap=gap, on_event=_log)
             _ai_fill["ok"] = stats.get("ok", 0)
             _ai_fill["failed"] = stats.get("failed", 0)
-            by_eid = {o["eid"]: o for o in stats.get("outcomes", [])}
-            for it in plan.get("items", []):
-                o = by_eid.get(it.get("encrypt_job_id"))
-                if o:
-                    it["dispatch"] = "done" if o["ok"] else "failed"
-                    it["dispatch_at"] = o.get("at") or ""
-                    if o.get("reason"):
-                        it["dispatch_note"] = o["reason"][:120]
+            from src.ai.pipeline import apply_outcomes
+            apply_outcomes(plan, stats)
             save_plan(plan, path)
         except Exception as exc:  # noqa: BLE001
             _ai_fill["error"] = str(exc)

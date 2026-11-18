@@ -44,6 +44,25 @@ def decide_status(verdict: str, score: int, greeting: str, min_score: int) -> st
     return "planned"
 
 
+def apply_outcomes(plan: dict, stats: dict) -> int:
+    """把 dispatch 的执行结果合并回计划，返回更新的条数。
+
+    CLI、HTTP 接口、采集后自动钩子三条路径都用这一份，避免各写一遍然后漏掉。
+    """
+    by_eid = {o.get("eid"): o for o in (stats or {}).get("outcomes", []) if o.get("eid")}
+    n = 0
+    for it in plan.get("items", []):
+        o = by_eid.get(it.get("encrypt_job_id"))
+        if not o:
+            continue
+        it["dispatch"] = "done" if o.get("ok") else "failed"
+        it["dispatch_at"] = o.get("at") or ""
+        if o.get("reason"):
+            it["dispatch_note"] = o["reason"][:120]
+        n += 1
+    return n
+
+
 def carry_dispatch(old: dict | None, new: dict) -> dict:
     """把旧计划里的执行记录带到新条目上。
 

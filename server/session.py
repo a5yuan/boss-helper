@@ -17,7 +17,7 @@ def ai_after_collect(ctrl) -> None:
     fill   筛选 + 逐条点沟通并填招呼语（只填不发，但会产生真实沟通记录）
     """
     from src.ai.dispatch import dispatch
-    from src.ai.pipeline import build_plan
+    from src.ai.pipeline import apply_outcomes, build_plan, plan_path_for, save_plan
     from src.config import get_config, load_ai_config
 
     cfg = load_ai_config()
@@ -49,6 +49,11 @@ def ai_after_collect(ctrl) -> None:
     ctrl.log(f"[AI] 开始填充 {len(todo)} 条（只填不发）")
     try:
         stats = dispatch(todo, on_event=ctrl.log)
+
+        # 回写执行状态：不回写的话计划永远显示 todo，下次会重复处理
+        apply_outcomes(plan, stats)
+        save_plan(plan, plan_path_for(target))
+
         ctrl.log(f"[AI] 填充完成: 成功 {stats['ok']} / 失败 {stats['failed']} / 跳过 {stats['skipped']}")
     except Exception as exc:  # noqa: BLE001
         tracer.entry("session.py:ai_after_collect", "AI 填充失败", {"error": str(exc)}, scope="error")
