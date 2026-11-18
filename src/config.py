@@ -269,4 +269,5 @@ def load_ai_config() -> dict:
         "fill_gap_min": float(raw.get("fill_gap_min", 8.0)),
         "fill_gap_max": float(raw.get("fill_gap_max", 15.0)),
         "fill_settle": float(raw.get("fill_settle", 2.5)),
+        "auto_after_collect": str(raw.get("auto_after_collect", "off")).lower(),
     }

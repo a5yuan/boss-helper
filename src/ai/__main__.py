@@ -79,6 +79,19 @@ def cmd_dispatch(args):
     stats = dispatch(items, gap=gap, on_event=print,
                      interactive=args.interactive, wait_open=args.wait_open)
     print(f"\n完成: 成功 {stats['ok']} / 失败 {stats['failed']} / 跳过 {stats['skipped']}")
+    # 回写执行状态与时间，否则重跑会把同一批人再点一遍
+    by_eid = {o["eid"]: o for o in stats.get("outcomes", [])}
+    for it in plan["items"]:
+        o = by_eid.get(it.get("encrypt_job_id"))
+        if not o:
+            continue
+        it["dispatch"] = "done" if o["ok"] else "failed"
+        it["dispatch_at"] = o.get("at") or ""
+        if o.get("reason"):
+            it["dispatch_note"] = o["reason"][:120]
+    save_plan(plan, args.plan)
+    print(f"计划已回写: {args.plan}")
+
     return 0 if stats["failed"] == 0 else 2
 
 
