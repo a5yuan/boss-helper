@@ -44,6 +44,19 @@ def decide_status(verdict: str, score: int, greeting: str, min_score: int) -> st
     return "planned"
 
 
+def carry_dispatch(old: dict | None, new: dict) -> dict:
+    """把旧计划里的执行记录带到新条目上。
+
+    重新筛选会重建整个 items，如果不显式搬过来，dispatch / dispatch_at 就丢了，
+    结果是把已经联系过的人再点一遍。
+    """
+    old = old or {}
+    for key in ("dispatch", "dispatch_at", "dispatch_note"):
+        if old.get(key):
+            new[key] = old[key]
+    return new
+
+
 def _resume_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
@@ -121,6 +134,7 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
         verdict = res.get("verdict") or "skip"
         score = res.get("score") or 0
         greeting = res.get("greeting") or ""
+        old_item = cached.get(eid) or {}
         items.append({
             "index": idx,
             "security_id": job.get("security_id") or "",
@@ -138,6 +152,7 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
             "status": decide_status(verdict, score, greeting, min_score),
             "dispatch": "todo",
         })
+        items[-1] = carry_dispatch(old_item, items[-1])
 
     by_resume = {}
     for it in items:

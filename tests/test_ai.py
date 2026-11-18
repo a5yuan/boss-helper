@@ -144,3 +144,23 @@ class TestQuota(unittest.TestCase):
     def test_want_smaller_than_quota(self):
         from src.ai.dispatch import plan_quota
         self.assertEqual(plan_quota(0, 20, 3), 3)
+
+
+class TestCarryDispatch(unittest.TestCase):
+    def test_carries_dispatch_record(self):
+        from src.ai.pipeline import carry_dispatch
+        old = {"dispatch": "done", "dispatch_at": "2026-11-18T09:55:27", "dispatch_note": ""}
+        new = {"dispatch": "todo", "title": "x"}
+        out = carry_dispatch(old, new)
+        self.assertEqual(out["dispatch"], "done")
+        self.assertEqual(out["dispatch_at"], "2026-11-18T09:55:27")
+
+    def test_no_old_record_keeps_todo(self):
+        from src.ai.pipeline import carry_dispatch
+        out = carry_dispatch(None, {"dispatch": "todo"})
+        self.assertEqual(out["dispatch"], "todo")
+
+    def test_old_without_dispatch_does_not_blank_new(self):
+        from src.ai.pipeline import carry_dispatch
+        out = carry_dispatch({"title": "x"}, {"dispatch": "todo"})
+        self.assertEqual(out["dispatch"], "todo")
