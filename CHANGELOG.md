@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting`、`/api/ai/fill`、`/api/ai/fill/status`
 - `ai.daily_limit`（默认 0 = 不限）：每日点「立即沟通」的可选上限；已联系过的岗位自动跳过
 - `ai.max_inactive_days`（默认 3）：投前读招聘者活跃状态，超期直接跳过
+- `ai.auto_after_collect`：采集结束后自动执行 `off` / `screen` / `fill`
 
 - 采集速度档位 `slow` / `normal` / `fast`：调整点击前后等待、条间延时与间隔休息，不改变读取方式；前端「采集速度」下拉可选
 - `click_vue.js` / `click_dom.js` 的点击等待改为 `__SCROLL_WAIT__` / `__CLICK_DELAY__` 占位符，由速度档位注入

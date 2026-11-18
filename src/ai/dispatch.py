@@ -20,6 +20,11 @@ from src.tracking import Tracker, track_key
 CHAT_PAGE = "https://www.zhipin.com/web/geek/chat"
 
 
+def _ts() -> str:
+    """日志用时间前缀，事后能对上平台上的沟通时间。"""
+    return datetime.now().strftime("%H:%M:%S")
+
+
 class DispatchError(Exception):
     pass
 
@@ -323,7 +328,7 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
                 log(f"  [{i}/{len(todo)}] 缺岗位 ID，跳过: {title}")
                 continue
 
-            log(f"  [{i}/{len(todo)}] {title} ...")
+            log(f"  {_ts()} [{i}/{len(todo)}] {title} ...")
             if not _ensure_page(bm):
                 stats["failed"] += 1
                 stats["outcomes"].append({"eid": eid, "ok": False, "reason": "没有可用标签页"})
@@ -346,8 +351,9 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
                 elif is_offline(act.get("text", ""), max_inactive_days):
                     stats["skipped"] += 1
                     stats["outcomes"].append({"eid": eid, "ok": False,
-                                              "reason": f"招聘者已 {days} 天未活跃"})
-                    log(f"     [-] 跳过：招聘者已 {days} 天未活跃")
+                                              "reason": f"招聘者已 {days} 天未活跃",
+                                              "at": datetime.now().isoformat(timespec="seconds")})
+                    log(f"     {_ts()} [-] 跳过：招聘者已 {days} 天未活跃")
                     time.sleep(random.uniform(*gap))
                     continue
                 else:
@@ -406,9 +412,10 @@ def dispatch(items: list, browser_type: str = "chrome", gap=(8.0, 15.0),
                 log(f"     [-] 填写失败: {filled.get('reason')}")
             else:
                 stats["ok"] += 1
-                stats["outcomes"].append({"eid": eid, "ok": True, "reason": ""})
+                stats["outcomes"].append({"eid": eid, "ok": True, "reason": "",
+                                          "at": datetime.now().isoformat(timespec="seconds")})
                 time.sleep(2.5)  # 等平台把草稿存下来，太快导航会丢
-                log(f"     [+] 已填 {filled.get('length', len(it['greeting']))} 字，未发送")
+                log(f"     {_ts()} [+] 已填 {filled.get('length', len(it['greeting']))} 字，未发送")
                 try:
                     tracker.set(track_key(sid, eid), "shortlisted", it["greeting"][:80])
                 except Exception:

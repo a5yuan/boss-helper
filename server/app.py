@@ -716,6 +716,9 @@ def api_ai_fill(body: AiFillBody):
                 o = by_eid.get(it.get("encrypt_job_id"))
                 if o:
                     it["dispatch"] = "done" if o["ok"] else "failed"
+                    it["dispatch_at"] = o.get("at") or ""
+                    if o.get("reason"):
+                        it["dispatch_note"] = o["reason"][:120]
             save_plan(plan, path)
         except Exception as exc:  # noqa: BLE001
             _ai_fill["error"] = str(exc)

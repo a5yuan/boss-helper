@@ -48,6 +48,20 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 | `src/js/fill_greeting.js` | 把 `__TEXT__` 写进最后一个可见输入框（只填不发） |
 | `src/ai/__main__.py` | CLI：`screen` / `dispatch` 两个子命令 |
 
+## 采集后自动执行
+
+`ai.auto_after_collect` 控制采集结束后是否自动接上 AI：
+
+| 值 | 行为 |
+|---|---|
+| `off`（默认） | 什么都不做，等人在复核页点按钮 |
+| `screen` | 只跑筛选生成计划，不点任何东西 |
+| `fill` | 筛选 + 逐条点沟通并填招呼语（只填不发，但会产生真实沟通记录） |
+
+钩子在 `server/session.py:ai_after_collect`，跑在采集线程里，用同一个
+`GuiController` 输出日志，所以界面「实时日志」能看到 `[AI]` 开头的行。
+任务被手动停止时不会触发。
+
 ## 复核页集成
 
 `/review` 顶部两个按钮：
