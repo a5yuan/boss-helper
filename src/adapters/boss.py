@@ -654,3 +654,8 @@ class BossAdapter:
                 return last
             time.sleep(0.8)
         return last
+
+
+from src.adapters.registry import register_adapter  # noqa: E402
+
+register_adapter("boss", BossAdapter)

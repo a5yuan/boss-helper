@@ -27,7 +27,7 @@ main.py / server.session → src.collector
 src.collector → src.adapters.base, src.adapters.registry,
                 src.core.browser, src.utils.browser_behavior,
                 src.utils.salary, src.storage.writer, src.control, src.config
-src.adapters.registry → src.adapters.boss（仅默认站点延迟 import）
+src.adapters.registry → importlib(`src.adapters.<site>`)（首次按 site 发现）
 src.adapters.boss → src.core.js_loader, src.utils.chat_input, src.core.browser（仅异常类型）
 src.collector → server.tracer（仅函数内延迟 import）
 ```
@@ -41,7 +41,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 |---|---|
 | `src/collector.py` | 主流程、登录等待、导航、循环、熔断、进度；平台策略只做调度 |
 | `src/adapters/base.py` | `PlatformAdapter` 契约、页面门面、结果形状 |
-| `src/adapters/registry.py` | `site` → 适配器工厂；新增平台只注册，不改引擎 |
+| `src/adapters/registry.py` | `site` → `import src.adapters.<site>`，平台自注册；新增平台只建目录，不改公共文件 |
 | `src/adapters/boss.py` | BOSS 页面操作：选页 / 登录探针 / 检索 URL / 列表 / 在线 / 点击 / 滚动 / 详情 / 聊天 / 招呼语 |
 | `src/utils/browser_behavior.py` | 随机浏览间隔、`SPEED_PROFILES` 速度档位（滚动与点击都在适配器） |
 | `src/utils/salary.py` | 薪资解析与区间匹配 |
@@ -77,8 +77,12 @@ src.collector → server.tracer（仅函数内延迟 import）
 **留在引擎的**：速度档位、条间延时、熔断阈值、重试与登录循环时序、日志格式、
 线程生命周期、停止/暂停信号、文件名与输出格式。这些是策略，不属于某个平台。
 
-接入新平台的验收方式见 `tests/test_fake_platform.py`：注册一个零网络适配器后，
-`run_collection(..., site="fake")` 必须能完整跑完并写出合法 JSON；
+接入新平台只需要建 `src/adapters/<site>/`（或同名模块），在导入时调用
+`register_adapter`。`create_adapter("<site>")` 首次找不到工厂会 import 该模块，
+不依赖任何手工注册。
+
+验收方式见 `tests/test_fake_platform.py`：不手工注册零网络适配器，
+`run_collection(..., site="fake")` 必须靠自动发现完整跑完并写出合法 JSON；
 任何平台 token 回到 `collector.py` 都会被该测试拦下。
 
 ## 已知陷阱
