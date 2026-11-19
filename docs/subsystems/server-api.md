@@ -50,9 +50,9 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | POST | `/api/start-params/reset` | 重置默认 |
 | GET | `/api/cities` | 城市列表（缓存优先） |
 | POST | `/api/cities/refresh` | 页内 fetch `city.json` |
-| POST | `/api/start` / `stop` / `pause` / `resume` | 任务控制 |
-| GET | `/api/status` | 运行状态、进度、待办动作 |
-| POST | `/api/ack` | 用户完成扫码 / 确认 |
+| POST | `/api/start` / `stop` / `pause` / `resume` | 任务控制；start 返回 `task_id`，其余可用 `task_id` 指定目标任务，缺省为当前任务 |
+| GET | `/api/status` | 运行状态、进度、待办动作；可用 `task_id` 查指定任务 |
+| POST | `/api/ack` | 用户完成扫码 / 确认；可用 `task_id` 指定目标任务 |
 | GET | `/api/results` | 最新（或指定日期）岗位 JSON |
 | WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流 |
 | GET / POST | `/api/tracking` | 投递状态 |
@@ -62,8 +62,8 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | GET | `/api/ai/plan` | 读某个采集文件对应的 AI 计划（`exists=false` 表示还没筛过） |
 | POST | `/api/ai/screen` | 跑 AI 筛选并生成 `ai_plan_*.json`（采集运行中拒绝） |
 | POST | `/api/ai/greeting` | 保存单条招呼语的编辑 |
-| POST | `/api/ai/fill` | 后台线程批量填充（点沟通 + 填字，不发送） |
-| GET | `/api/ai/fill/status` | 批量填充分进度与日志 |
+| POST | `/api/ai/fill` | 后台线程批量填充（点沟通 + 填字，不发送），返回 `task_id` |
+| GET | `/api/ai/fill/status` | 批量填充进度与日志；可用 `task_id`，缺省为最近一次 |
 | GET / DELETE | `/__debug_log` | 调试日志读写 |
 | GET / POST | `/api/debug/*` | 调试开关、scope、面板 |
 
@@ -72,7 +72,8 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 - **WS 是轮询式 drain**：两个客户端同时连接会互相抢事件；不要假设多标签页都能收到完整日志。
 - **同步路由会占线程池**：`/api/focus`、`/api/greet` 内部同步操作浏览器（含 `time.sleep`），并发请求会排队。
 - **`_with_browser` 在采集运行时直接拒绝**：这是有意的，不要改成并发连接同一个浏览器。
-- **`session.controller` 在任务结束后仍保留**：`/api/status` 会继续返回最后一次进度和 state，前端据此显示"已停止"。
+- **`session.controller()` 在任务结束后仍保留**：`/api/status` 会继续返回最后一次进度和 state，前端据此显示"已停止"。
+- **状态按 `task_id` 索引**：`/api/focus`、`/api/greet` 只在同平台任务运行时拒绝，不会因为别的平台任务在跑就拒绝。
 - **`StaticFiles` 挂在 `/`**：新增路由必须在 mount 之前注册，否则会被静态托管吞掉；`/review` 就是靠这一点在 mount 之前注册的。
 - **Vite 构建 `outDir` 是 `../server/static`**：`build_exe.py` 又拷 `webui/dist`，两处产物要一致。
 - **端口**：dev 模式自动找空闲端口并写 `.env.local`；prod 固定 `BOSS_BACKEND_PORT`。

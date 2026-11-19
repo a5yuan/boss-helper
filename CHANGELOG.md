@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CDP 选页去平台化：`BrowserManager.list_pages` 返回全部 target，归属判断由适配器 `owns_url` 负责
 - 启动后校验端口与页面归属，找不到本平台页面就关闭进程退出；二级平台不再扫描 9222-9229
 - LLM 调用改为模块级全局限流：容量取 `ai.concurrency`，所有 `LLMClient` 共享，不再按实例各算一份
+- 单槽状态按 `task_id` 索引：`Session` 与 `_ai_fill` 不再用全局单例；`/api/focus`、`/api/greet` 只拒绝同平台任务
+- `/api/start` 与 `/api/ai/fill` 返回 `task_id`，`stop/pause/resume/ack/status` 与填充状态查询可带 `task_id`，缺省当前任务
 
 ---
 

@@ -3,6 +3,7 @@ import asyncio
 import glob
 import json
 import threading
+import uuid
 import os
 import pathlib
 import time
@@ -13,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.config import get_config, save_config, load_start_params, save_start_params
+from src.config import DEFAULT_PLATFORM, get_config, save_config, load_start_params, save_start_params
 from src.core.cities import get_cities, refresh_from_browser
 
 
@@ -138,38 +139,39 @@ def api_start(params: StartParams):
         return {"ok": False, "error": "已有任务在运行"}
     trace_id = tracer.start_scope("collect-start")
     tracer.entry("app.py:api_start", "分析任务启动", params.model_dump(), scope="collect-start")
-    session.start(_dump(params))
-    return {"ok": True}
+    task_id = session.start(_dump(params))
+    return {"ok": True, "task_id": task_id}
 
 
 @app.post("/api/stop")
-def api_stop():
-    session.stop()
+def api_stop(task_id: str | None = None):
+    session.stop(task_id)
     return {"ok": True}
 
 
 @app.post("/api/pause")
-def api_pause():
-    session.pause()
+def api_pause(task_id: str | None = None):
+    session.pause(task_id)
     return {"ok": True}
 
 
 @app.post("/api/resume")
-def api_resume():
-    session.resume()
+def api_resume(task_id: str | None = None):
+    session.resume(task_id)
     return {"ok": True}
 
 
 @app.post("/api/ack")
-def api_ack(body: AckBody):
-    session.ack(body.payload)
+def api_ack(body: AckBody, task_id: str | None = None):
+    session.ack(body.payload, task_id)
     return {"ok": True}
 
 
 @app.get("/api/status")
-def api_status():
-    ctrl = session.controller
+def api_status(task_id: str | None = None):
+    ctrl = session.controller(task_id)
     return {
+        "task_id": task_id or session.current_task_id,
         "running": session.running,
         "state": ctrl.state if ctrl else "idle",
         "progress": ctrl.latest_progress if ctrl else {"done": 0, "total": 0, "stats": {}},
@@ -206,7 +208,7 @@ def api_results(date: str | None = None, output_dir: str | None = None):
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     # 连接时先推送当前快照，便于前端刷新后恢复状态
-    ctrl = session.controller
+    ctrl = session.controller()
     if ctrl:
         await ws.send_json({"type": "status", "state": ctrl.state})
         await ws.send_json({"type": "progress", **ctrl.latest_progress})
@@ -214,7 +216,7 @@ async def ws_endpoint(ws: WebSocket):
             await ws.send_json({"type": "need_action", **ctrl.pending_action})
     try:
         while True:
-            ctrl = session.controller
+            ctrl = session.controller()
             if ctrl:
                 for ev in ctrl.drain():
                     await ws.send_json(ev)
@@ -378,14 +380,14 @@ def _find_job(security_id: str = "", encrypt_job_id: str = "") -> dict | None:
     return None
 
 
-def _with_browser(fn, prefer_chat: bool = False):
+def _with_browser(fn, prefer_chat: bool = False, platform: str | None = None):
     """连接到正在运行的调试浏览器，执行 fn(bm, page)。"""
-    if session.running:
-        return {"ok": False, "error": "采集任务正在运行，请先停止再定位"}
+    if session.running_for(platform):
+        return {"ok": False, "error": "该平台采集任务正在运行，请先停止再定位"}
     from src.core.browser import BrowserManager
     from src.adapters.boss import BossAdapter
 
-    bm = BrowserManager(config=get_config("chrome"))
+    bm = BrowserManager(config=get_config("chrome", platform=platform))
     if not bm.try_connect_existing():
         return {"ok": False, "error": "没有正在运行的调试浏览器，请先跑一次采集"}
     adapter = BossAdapter()
@@ -479,6 +481,7 @@ def api_focus(body: FocusBody):
     from src.adapters.boss import BossAdapter
 
     job = _find_job(body.security_id, body.encrypt_job_id) or {}
+    platform = job.get("platform") or DEFAULT_PLATFORM
     eid = body.encrypt_job_id or job.get("encrypt_job_id") or ""
 
     def _run(bm, page):
@@ -511,7 +514,7 @@ def api_focus(body: FocusBody):
         bm.bring_to_front()
         return result
 
-    return _with_browser(_run)
+    return _with_browser(_run, platform=platform)
 
 
 def _default_greeting(job: dict) -> str:
@@ -531,6 +534,7 @@ def api_greet(body: GreetBody):
     if not (body.security_id or body.encrypt_job_id):
         return {"ok": False, "error": "缺少岗位 ID"}
     job = _find_job(body.security_id, body.encrypt_job_id) or {}
+    platform = job.get("platform") or DEFAULT_PLATFORM
     text = (body.text or "").strip() or _default_greeting(job)
 
     def _run(bm, page):
@@ -542,7 +546,7 @@ def api_greet(body: GreetBody):
         time.sleep(0.5)  # 给平台存草稿留点时间（草稿是 focusout 后异步写的）
         return {"ok": True, "filled": text, "length": res.get("length")}
 
-    return _with_browser(_run, prefer_chat=True)
+    return _with_browser(_run, prefer_chat=True, platform=platform)
 
 
 
@@ -569,8 +573,12 @@ class AiGreetingBody(BaseModel):
     greeting: str = ""
 
 
-_ai_fill = {"running": False, "done": 0, "total": 0, "ok": 0, "failed": 0,
-            "log": [], "error": "", "finished": False}
+_ai_fills: dict[str, dict] = {}
+_latest_fill_id: str | None = None
+
+
+def _fill_state(task_id: str | None = None) -> dict | None:
+    return _ai_fills.get(task_id or _latest_fill_id or "")
 
 
 def _ai_plan_path(file_name: str) -> str:
@@ -658,7 +666,7 @@ def api_ai_fill(body: AiFillBody):
     """批量填充：逐条点「立即沟通」并把招呼语填进输入框（不发送）。"""
     if session.running:
         return {"ok": False, "error": "采集任务运行中，先停下再填充"}
-    if _ai_fill["running"]:
+    if any(state.get("running") for state in _ai_fills.values()):
         return {"ok": False, "error": "批量填充已在运行"}
     from src.ai.dispatch import dispatch
     from src.ai.pipeline import load_plan, save_plan
@@ -675,40 +683,50 @@ def api_ai_fill(body: AiFillBody):
     if not items:
         return {"ok": False, "error": "计划里没有待填充的岗位"}
 
-    _ai_fill.update({"running": True, "done": 0, "total": len(items), "ok": 0,
-                     "failed": 0, "log": [], "error": "", "finished": False})
+    global _latest_fill_id
+    fill_id = f"fill-{uuid.uuid4().hex[:10]}"
+    state = {"task_id": fill_id, "running": True, "done": 0, "total": len(items),
+             "ok": 0, "failed": 0, "log": [], "error": "", "finished": False}
+    _ai_fills[fill_id] = state
+    _latest_fill_id = fill_id
 
     def _run():
         def _log(msg):
-            _ai_fill["log"].append(str(msg)[:200])
-            if len(_ai_fill["log"]) > 200:
-                _ai_fill["log"] = _ai_fill["log"][-100:]
+            state["log"].append(str(msg)[:200])
+            if len(state["log"]) > 200:
+                state["log"] = state["log"][-100:]
         try:
             gap = (body.gap_min, body.gap_max) if (body.gap_min and body.gap_max) else None
-            bt = body.browser_type or (session.last_params or {}).get("browser_type") or "chrome"
-            platform = body.platform or (session.last_params or {}).get("site") or "boss"
+            params = session.params() or {}
+            bt = body.browser_type or params.get("browser_type") or "chrome"
+            platform = body.platform or params.get("site") or DEFAULT_PLATFORM
             runtime = get_runtime(platform, bt)
             stats = dispatch(items, browser_type=bt, gap=gap, on_event=_log,
                              tracker=runtime.tracker, platform=platform)
-            _ai_fill["ok"] = stats.get("ok", 0)
-            _ai_fill["failed"] = stats.get("failed", 0)
+            state["ok"] = stats.get("ok", 0)
+            state["failed"] = stats.get("failed", 0)
             from src.ai.pipeline import apply_outcomes
             apply_outcomes(plan, stats)
             save_plan(plan, path)
         except Exception as exc:  # noqa: BLE001
-            _ai_fill["error"] = str(exc)
+            state["error"] = str(exc)
             tracer.entry("app.py:api_ai_fill", "批量填充失败", {"error": str(exc)}, scope="error")
         finally:
-            _ai_fill["running"] = False
-            _ai_fill["finished"] = True
+            state["running"] = False
+            state["finished"] = True
 
-    threading.Thread(target=_run, name="ai_fill", daemon=True).start()
-    return {"ok": True, "total": len(items)}
+    threading.Thread(target=_run, name=f"ai_fill:{fill_id}", daemon=True).start()
+    return {"ok": True, "total": len(items), "task_id": fill_id}
 
 
 @app.get("/api/ai/fill/status")
-def api_ai_fill_status():
-    return {"ok": True, **_ai_fill}
+def api_ai_fill_status(task_id: str | None = None):
+    state = _fill_state(task_id)
+    if not state:
+        # 与历史响应保持一致：ok 是成功条数，不是布尔值
+        return {"ok": 0, "task_id": None, "running": False, "done": 0, "total": 0,
+                "failed": 0, "log": [], "error": "", "finished": False}
+    return {"ok": True, **state}
 
 
 @app.get("/review")

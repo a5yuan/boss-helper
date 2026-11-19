@@ -1,7 +1,13 @@
-"""单任务会话管理。"""
+"""单任务会话管理。
+
+UI 仍是单任务，但状态按 task_id 索引：以后并发跑不同平台时，
+停止 / 暂停 / 状态查询都只作用于目标任务，不会误伤别的任务。
+"""
 import os
 import threading
+import uuid
 
+from src.config import DEFAULT_PLATFORM
 from src.control import GuiController
 from src.collector import run_collection
 from src.runtime import get_runtime
@@ -65,20 +71,46 @@ def ai_after_collect(ctrl, source_path: str | None,
 
 class Session:
     def __init__(self):
-        self.controller: GuiController | None = None
-        self.thread: threading.Thread | None = None
+        self.tasks: dict[str, dict] = {}
+        self.current_task_id: str | None = None
         self.last_params: dict | None = None
 
     @property
     def running(self) -> bool:
-        return self.thread is not None and self.thread.is_alive()
+        return any(self._alive(t) for t in self.tasks.values())
 
-    def start(self, params: dict):
+    def running_for(self, platform: str | None) -> bool:
+        key = platform or DEFAULT_PLATFORM
+        return any(t["platform"] == key and self._alive(t) for t in self.tasks.values())
+
+    @staticmethod
+    def _alive(task: dict) -> bool:
+        thread = task.get("thread")
+        return thread is not None and thread.is_alive()
+
+    def controller(self, task_id: str | None = None) -> GuiController | None:
+        task = self.tasks.get(task_id or self.current_task_id or "")
+        return task["controller"] if task else None
+
+    def params(self, task_id: str | None = None) -> dict | None:
+        task = self.tasks.get(task_id or self.current_task_id or "")
+        return task["params"] if task else None
+
+    def start(self, params: dict) -> str:
         if self.running:
             raise RuntimeError("已有任务在运行")
+        task_id = uuid.uuid4().hex[:12]
+        ctrl = GuiController()
+        params = dict(params)
+        task = {
+            "controller": ctrl,
+            "thread": None,
+            "params": params,
+            "platform": params.get("site") or DEFAULT_PLATFORM,
+        }
+        self.tasks[task_id] = task
+        self.current_task_id = task_id
         self.last_params = params
-        self.controller = GuiController()
-        ctrl = self.controller
 
         def _run():
             try:
@@ -101,27 +133,33 @@ class Session:
                 ctrl.log(f"[ERROR] 分析线程异常: {exc}", level="error")
                 ctrl.status("error", str(exc))
 
-        self.thread = threading.Thread(target=_run, name="helper_session", daemon=True)
-        self.thread.start()
+        thread = threading.Thread(target=_run, name=f"helper_session:{task_id}", daemon=True)
+        task["thread"] = thread
+        thread.start()
+        return task_id
 
-    def stop(self):
-        if self.controller:
+    def stop(self, task_id: str | None = None):
+        ctrl = self.controller(task_id)
+        if ctrl:
             tracer.entry("session.py:stop", "停止运行", {}, scope="stop-collection")
-            self.controller.request_stop()
+            ctrl.request_stop()
 
-    def pause(self):
-        if self.controller:
+    def pause(self, task_id: str | None = None):
+        ctrl = self.controller(task_id)
+        if ctrl:
             tracer.entry("session.py:pause", "暂停任务", {}, scope="pause-collection")
-            self.controller.request_pause()
+            ctrl.request_pause()
 
-    def resume(self):
-        if self.controller:
+    def resume(self, task_id: str | None = None):
+        ctrl = self.controller(task_id)
+        if ctrl:
             tracer.entry("session.py:resume", "继续任务", {}, scope="resume-collection")
-            self.controller.request_resume()
+            ctrl.request_resume()
 
-    def ack(self, payload: str = ""):
-        if self.controller:
-            self.controller.ack_user(payload)
+    def ack(self, payload: str = "", task_id: str | None = None):
+        ctrl = self.controller(task_id)
+        if ctrl:
+            ctrl.ack_user(payload)
 
 
 session = Session()

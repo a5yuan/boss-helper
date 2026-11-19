@@ -16,7 +16,7 @@
 - **focus 顺序**：先按 `security_id` 在当前页面点卡片；点不到才用 `encrypt_job_id` 打开 `job_detail/<eid>.html`。
 - **focus 默认打开沟通窗**：定位成功后调用 `src/js/click_chat.js` 点「立即沟通 / 继续沟通」，只点按钮、不发送任何消息；按钮找不到时返回 `chat.ok=false`，不影响定位本身。请求体传 `open_chat=false` 可关闭。
 - **greet 只填不发送**：把文本写进最后一个可见 `textarea` / `contenteditable`，发送留给人工。
-- **采集运行时拒绝浏览器操作**：`_with_browser` 在 `session.running` 时返回错误。
+- **同平台采集运行时拒绝浏览器操作**：`_with_browser` 用 `session.running_for(platform)` 判断，只拒绝该平台的任务，别的平台在跑不影响。
 - **页面默认读最新文件，可切换历史文件**：`/api/results` 不带参数时取排序后的第一个 `jobs_*.json`；带 `date=<文件名>` 时取匹配文件。
 
 ## 依赖方向
