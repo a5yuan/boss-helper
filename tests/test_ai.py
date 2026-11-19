@@ -166,6 +166,72 @@ class TestCarryDispatch(unittest.TestCase):
         self.assertEqual(out["dispatch"], "todo")
 
 
+class _FakeChatClient:
+    """记录发出去的 messages，返回固定 payload。"""
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def chat_json(self, messages, max_tokens=900):
+        self.calls.append((messages, max_tokens))
+        return dict(self.payload)
+
+
+class TestGreetingPrompt(unittest.TestCase):
+    """招呼语提示词边界：不得让模型把简历里的姓名 / 联系方式抄进 greeting。"""
+
+    CANNED = {
+        "score": 82,
+        "verdict": "maybe",
+        "reasons": ["要求 Python 后端", "做过 RAG 检索链路"],
+        "gaps": ["没有 K8s 经验"],
+        "greeting": "做 Agent 与 RAG 工程，用 Python/FastAPI 做过检索链路，想聊聊你们的召回方案。",
+    }
+
+    def _run(self):
+        from src.ai.screen import analyze_job
+
+        client = _FakeChatClient(self.CANNED)
+        job = {
+            "title": "Agent 开发工程师",
+            "company": "测试公司",
+            "company_stage": "B轮",
+            "company_scale": "100-499人",
+            "industry": "人工智能",
+            "salary": "25-40K",
+            "experience": "3-5年",
+            "degree": "本科",
+            "location": "杭州",
+            "skills": ["Python", "RAG"],
+            "welfare": ["五险一金"],
+            "company_intro": "做企业级 Agent 平台",
+            "jd": "负责 Agent 与 RAG 应用开发，要求熟悉 Python、FastAPI，有检索增强经验。",
+        }
+        resume = (
+            "吴金远\n手机 13800138000\n邮箱 wuyj@example.com\n微信号 wjy_agent\n"
+            "四年 Python 后端，做过 RAG 检索链路与 Agent 编排。"
+        )
+        return client, analyze_job(client, job, resume)
+
+    def test_prompt_forbids_real_name_and_contact(self):
+        client, _ = self._run()
+        user = client.calls[0][0][1]["content"]
+        for needle in ("角色 + 技术栈", "严禁出现真实姓名", "联系方式",
+                       "我是XXX", "至少提到 JD 里的 1 个具体要求", "140"):
+            self.assertIn(needle, user)
+        self.assertNotIn("我是谁", user)
+        # 旧模板允许「您好，我是…」以外都算客套，这条必须消失
+        self.assertNotIn("以外的客套", user)
+
+    def test_canned_score_verdict_reasons_gaps_pass_through(self):
+        _, result = self._run()
+        self.assertEqual(result["score"], self.CANNED["score"])
+        self.assertEqual(result["verdict"], self.CANNED["verdict"])
+        self.assertEqual(result["reasons"], self.CANNED["reasons"])
+        self.assertEqual(result["gaps"], self.CANNED["gaps"])
+
+
 class TestApplyOutcomes(unittest.TestCase):
     def _plan(self):
         return {"items": [
