@@ -28,7 +28,7 @@ main.py / server.session → src.collector
 src.collector → src.adapters.base, src.adapters.registry,
                 src.core.browser, src.utils.browser_behavior,
                 src.utils.salary, src.storage.writer, src.control, src.config
-src.adapters.registry → importlib(`src.adapters.<site>`)（首次按 site 发现）
+src.adapters.registry → importlib("src.adapters.<site>")（首次按 site 发现）
 src.adapters.boss → src.core.js_loader, src.utils.chat_input, src.core.browser（仅异常类型）
 src.collector → server.tracer（仅函数内延迟 import）
 ```
