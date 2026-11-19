@@ -23,7 +23,7 @@
 
 ```
 run_gui.py → server.app (uvicorn) → server.session → src.collector
-server.app → src.config, src.core.cities, src.tracking, src.core.browser
+server.app → src.config, src.core.cities, src.runtime, src.tracking, src.core.browser
 webui → /api, /ws（HTTP/WS，不 import Python）
 ```
 

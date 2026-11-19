@@ -33,7 +33,7 @@
 
 ```
 src.ai.pipeline → src.ai.client, src.ai.screen, src.ai.dispatch, src.config
-src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.tracking
+src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.runtime, src.tracking
 src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 ```
 
@@ -62,7 +62,8 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 
 钩子在 `server/session.py:ai_after_collect`，跑在采集线程里，用同一个
 `GuiController` 输出日志，所以界面「实时日志」能看到 `[AI]` 开头的行。
-任务被手动停止时不会触发。
+它接收本次采集返回的 `json` 路径，不再 glob 最新文件；Tracker 由
+`src/runtime.py` 注入，配额按平台算。任务被手动停止时不会触发。
 
 ## 复核页集成
 

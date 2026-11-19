@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `config.yaml` 的 `start_params` 新增 `speed`；旧配置按 `fast` / `safe_mode` 自动推导，不会强制改回慢速
 - 采集输出目录改为 `output/{platform}/`（BOSS 为 `output/boss/`）；历史文件仍留在 `output/`，但新采集与复习队列只看新目录
 - `config.yaml` 的 `start_params` 新增 `site`（默认 `boss`）
+- `dispatch` 不再自己 new Tracker：由 runtime 注入，同一平台共享状态锁与每日配额
+- 采集结束后 AI 钩子使用本次采集返回的确切文件，不再 glob 最新 `jobs_*.json`；`plan_path_for` 改为跟随源文件目录
 
 ---
 

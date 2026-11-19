@@ -16,7 +16,8 @@ from src.config import get_config, load_ai_config
 from src.core.browser import BrowserManager
 from src.core.js_loader import load_js
 from src.ai.activity import is_offline, parse_active_days
-from src.tracking import Tracker, track_key
+from src.runtime import get_runtime
+from src.tracking import track_key
 from src.utils import chat_input
 
 
@@ -132,8 +133,8 @@ def _blur_input(bm) -> None:
     chat_input.blur(bm)
 
 
-def _connect_one(browser_type: str) -> BrowserManager:
-    cfg = get_config(browser_type)
+def _connect_one(browser_type: str, platform: str | None = None) -> BrowserManager:
+    cfg = get_config(browser_type, platform=platform)
     bm = BrowserManager(config=cfg)
     if not bm.try_connect_existing():
         raise DispatchError(f"没有可连接的 {browser_type}")
@@ -145,13 +146,13 @@ def _connect_one(browser_type: str) -> BrowserManager:
     return bm
 
 
-def open_browser(browser_type: str = "chrome") -> BrowserManager:
+def open_browser(browser_type: str = "chrome", platform: str | None = None) -> BrowserManager:
     """连已启动的浏览器。采集用哪个浏览器不确定时，两个都试一遍。"""
     order = [browser_type] + [b for b in ("chrome", "edge") if b != browser_type]
     errors = []
     for bt in order:
         try:
-            return _connect_one(bt)
+            return _connect_one(bt, platform)
         except Exception as exc:  # noqa: BLE001
             errors.append(str(exc))
     raise DispatchError(
@@ -161,21 +162,23 @@ def open_browser(browser_type: str = "chrome") -> BrowserManager:
 
 def dispatch(items: list, browser_type: str = "chrome", gap=None,
              on_event=None, dry: bool = False, interactive: bool = False,
-             wait_open: float = 90.0, force_refill: bool = False) -> dict:
+             wait_open: float = 90.0, force_refill: bool = False,
+             tracker=None, platform: str | None = None) -> dict:
     """执行计划。items 需含 encrypt_job_id / title / greeting。
 
-    dry=True 只打印将要做什么，不连接浏览器。
+    dry=True 只打印将要做什么，不连接浏览器。tracker 由 runtime 注入，
+    不传时取该平台的共享实例，保证配额与状态锁只有一个。
     """
     log = on_event or (lambda msg: None)
     todo = [it for it in items if (it.get("greeting") or "").strip()]
     stats = {"ok": 0, "failed": 0, "skipped": 0, "total": len(todo), "outcomes": []}
+    tracker = tracker or get_runtime(platform, browser_type).tracker
 
     # ---- 硬约束：每日额度 + 不重复联系 ----
     # 点「立即沟通」对方能收到通知，还有人挂自动回复按学历筛人。
     # 所以宁可少投，也不能把同一批岗位反复点、或一天点太多。
-    tracker_pre = Tracker()
     today = datetime.now().strftime("%Y-%m-%d")
-    already = tracker_pre.all()
+    already = tracker.all()
     contacted_today = sum(
         1 for v in already.values()
         if str(v.get("updated_at", "")).startswith(today)
@@ -222,9 +225,8 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
         log("计划里没有可执行的岗位")
         return stats
 
-    bm = open_browser(browser_type)
+    bm = open_browser(browser_type, platform)
     adapter = BossAdapter(bm)
-    tracker = Tracker()
     if not _ensure_page(bm):
         log("[!] 找不到可复用的 BOSS 标签页")
     try:

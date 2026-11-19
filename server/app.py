@@ -554,6 +554,7 @@ class AiScreenBody(BaseModel):
 class AiFillBody(BaseModel):
     file: str = ""
     browser_type: str | None = None
+    platform: str | None = None
     limit: int | None = None
     gap_min: float | None = None   # 留空则用 config.yaml 的 ai.fill_gap_*
     gap_max: float | None = None
@@ -682,7 +683,10 @@ def api_ai_fill(body: AiFillBody):
         try:
             gap = (body.gap_min, body.gap_max) if (body.gap_min and body.gap_max) else None
             bt = body.browser_type or (session.last_params or {}).get("browser_type") or "chrome"
-            stats = dispatch(items, browser_type=bt, gap=gap, on_event=_log)
+            platform = body.platform or (session.last_params or {}).get("site") or "boss"
+            runtime = get_runtime(platform, bt)
+            stats = dispatch(items, browser_type=bt, gap=gap, on_event=_log,
+                             tracker=runtime.tracker, platform=platform)
             _ai_fill["ok"] = stats.get("ok", 0)
             _ai_fill["failed"] = stats.get("failed", 0)
             from src.ai.pipeline import apply_outcomes

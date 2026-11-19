@@ -1,36 +1,37 @@
 """单任务会话管理。"""
-import glob
 import os
 import threading
 
 from src.control import GuiController
 from src.collector import run_collection
+from src.runtime import get_runtime
 
 from .tracer import tracer
 
 
-def ai_after_collect(ctrl, browser_type: str = "chrome") -> None:
+def ai_after_collect(ctrl, source_path: str | None,
+                     browser_type: str = "chrome", platform: str | None = None) -> None:
     """采集结束后按 ai.auto_after_collect 自动筛选 / 填充。
 
     off    不做任何事
     screen 只跑 AI 筛选，生成计划（安全，不点任何东西）
     fill   筛选 + 逐条点沟通并填招呼语（只填不发，但会产生真实沟通记录）
+
+    source_path 是本次采集实际写出的文件，不再 glob 最新文件。
     """
     from src.ai.dispatch import dispatch
     from src.ai.pipeline import apply_outcomes, build_plan, plan_path_for, save_plan
-    from src.config import get_config, load_ai_config
+    from src.config import load_ai_config
 
     cfg = load_ai_config()
     mode = str(cfg.get("auto_after_collect") or "off").lower()
     if mode not in ("screen", "fill"):
         return
 
-    out_dir = get_config("chrome")["output_dir"]
-    files = glob.glob(os.path.join(out_dir, "jobs_*.json"))
-    if not files:
-        ctrl.log("[AI] 没找到采集结果，跳过")
+    if not source_path or not os.path.exists(source_path):
+        ctrl.log("[AI] 没有可用的采集结果，跳过")
         return
-    target = max(files, key=os.path.getmtime)
+    target = source_path
     ctrl.log(f"\n[AI] 开始筛选: {os.path.basename(target)}")
 
     try:
@@ -48,7 +49,9 @@ def ai_after_collect(ctrl, browser_type: str = "chrome") -> None:
 
     ctrl.log(f"[AI] 开始填充 {len(todo)} 条（只填不发）")
     try:
-        stats = dispatch(todo, browser_type=browser_type, on_event=ctrl.log)
+        runtime = get_runtime(platform, browser_type)
+        stats = dispatch(todo, browser_type=browser_type, on_event=ctrl.log,
+                         tracker=runtime.tracker, platform=platform)
 
         # 回写执行状态：不回写的话计划永远显示 todo，下次会重复处理
         apply_outcomes(plan, stats)
@@ -79,7 +82,7 @@ class Session:
 
         def _run():
             try:
-                tracer.span(
+                result = tracer.span(
                     "BE-ENTRY",
                     "session.py:run_collection",
                     "执行数据整理主任务",
@@ -87,7 +90,12 @@ class Session:
                     scope="start-collection"
                 )
                 if not ctrl.should_stop():
-                    ai_after_collect(ctrl, params.get("browser_type", "chrome"))
+                    ai_after_collect(
+                        ctrl,
+                        (result or {}).get("json"),
+                        params.get("browser_type", "chrome"),
+                        params.get("site"),
+                    )
             except Exception as exc:  # noqa: BLE001
                 tracer.entry("session.py:_run", "分析线程异常", {"error": str(exc)}, scope="error")
                 ctrl.log(f"[ERROR] 分析线程异常: {exc}", level="error")

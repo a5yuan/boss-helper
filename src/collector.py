@@ -778,8 +778,10 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     ctrl.log(f"\n   [*] {browser_type.capitalize()} 保持运行 (端口 {browser.port})，下次可复用")
 
     browser.disconnect()
-    ctrl.status("stopped" if stopped else "done", {
+    result = {
         "success": success_count, "fail": fail_count, "skip": skip_count,
         "offline": offline_count, "online_unknown": online_unknown_count,
         "json": writer.json_path, "md": writer.md_path, "total": len(writer.all_jobs),
-    })
+    }
+    ctrl.status("stopped" if stopped else "done", result)
+    return result

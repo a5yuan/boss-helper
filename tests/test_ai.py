@@ -1,4 +1,6 @@
 """AI 管线的纯逻辑测试：JSON 抠取 + 计划状态判定。不联网。"""
+import os
+import tempfile
 import unittest
 
 from src.ai.client import LLMError, extract_json
@@ -33,6 +35,22 @@ class TestExtractJson(unittest.TestCase):
     def test_unclosed_raises(self):
         with self.assertRaises(LLMError):
             extract_json('{"a": 1')
+
+
+class TestDispatchTrackerInjection(unittest.TestCase):
+    def test_dry_run_uses_injected_tracker(self):
+        from src.ai.dispatch import dispatch
+        from src.tracking import Tracker
+
+        with tempfile.TemporaryDirectory() as td:
+            tracker = Tracker(path=os.path.join(td, "tracking.json"))
+            tracker.set("enc-1", "applied")
+            stats = dispatch(
+                [{"encrypt_job_id": "enc-1", "security_id": "", "title": "x", "greeting": "你好"}],
+                dry=True, tracker=tracker,
+            )
+        self.assertEqual(stats["skipped"], 1)
+        self.assertEqual(stats["total"], 0)
 
 
 class TestDecideStatus(unittest.TestCase):

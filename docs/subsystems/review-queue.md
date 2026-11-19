@@ -12,7 +12,7 @@
 
 - **主键是 `encryptJobId`**：`track_key` 和前端 `keyOf` 都是 `encrypt_job_id || security_id`。`securityId` 每次页面加载都会变，不能单独持久化（55e1d30）。
 - **状态机**：`new → shortlisted / skipped / applied`，合法值由 `VALID_STATUS` 约束；未知状态抛 `ValueError`。
-- **`tracking.json` 原子写**：`tmp + os.replace`；默认路径 `output/tracking.json`。
+- **`tracking.json` 原子写**：`tmp + os.replace`；路径为 `output/{platform}/tracking.json`（BOSS 为 `output/boss/tracking.json`）。首次使用时从旧 `output/tracking.json` 复制一次。
 - **focus 顺序**：先按 `security_id` 在当前页面点卡片；点不到才用 `encrypt_job_id` 打开 `job_detail/<eid>.html`。
 - **focus 默认打开沟通窗**：定位成功后调用 `src/js/click_chat.js` 点「立即沟通 / 继续沟通」，只点按钮、不发送任何消息；按钮找不到时返回 `chat.ok=false`，不影响定位本身。请求体传 `open_chat=false` 可关闭。
 - **greet 只填不发送**：把文本写进最后一个可见 `textarea` / `contenteditable`，发送留给人工。
@@ -23,7 +23,7 @@
 
 ```
 server/review.html → /api/results, /api/tracking, /api/focus, /api/greet
-server/app.py → src.tracking, src.core.browser, src.utils.browser_behavior, src.config
+server/app.py → src.runtime, src.tracking, src.core.browser, src.utils.browser_behavior, src.config
 src.tracking → src.config（延迟 import）
 ```
 
@@ -37,7 +37,7 @@ src.tracking → src.config（延迟 import）
 | `src/tracking.py` | `Tracker`：读 / 写 `tracking.json` |
 | `server/app.py` | `track_key`、`_job_files`、`_find_job`、`_with_browser`、`/api/focus`、`/api/greet` |
 | `src/adapters/boss.py` | `click_card`：Vue 点击优先，DOM 兜底（`/api/focus` 调用） |
-| `output/tracking.json` | 状态库（不入库） |
+| `output/{platform}/tracking.json` | 状态库（不入库），BOSS 为 `output/boss/tracking.json` |
 
 ## 快捷键
 
