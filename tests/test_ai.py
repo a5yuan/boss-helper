@@ -53,6 +53,17 @@ class TestDispatchTrackerInjection(unittest.TestCase):
         self.assertEqual(stats["total"], 0)
 
 
+class TestLlmThrottle(unittest.TestCase):
+    def test_semaphore_is_global_and_uses_configured_capacity(self):
+        from src.ai.client import _llm_semaphore
+        from src.config import load_ai_config
+
+        sem = _llm_semaphore()
+        self.assertIs(sem, _llm_semaphore())
+        expected = max(1, int(load_ai_config().get("concurrency", 4)))
+        self.assertEqual(sem._value, expected)
+
+
 class TestDecideStatus(unittest.TestCase):
     def test_apply_above_threshold_is_planned(self):
         self.assertEqual(decide_status("apply", 80, "你好", 60), "planned")

@@ -4,9 +4,33 @@
 通义 / OpenAI 官方。配置来自 config.yaml 的 ai 段（见 src.config.load_ai_config）。
 """
 import json
+import threading
 import time
 
 import requests
+
+
+_SEM: threading.BoundedSemaphore | None = None
+_SEM_LOCK = threading.Lock()
+
+
+def _llm_semaphore() -> threading.BoundedSemaphore:
+    """模块级全局限流。
+
+    容量取 ``ai.concurrency``。LLMClient.from_config() 有多个调用点，
+    如果按实例限流会得到多个独立上限，所以这里只允许一个信号量。
+    """
+    global _SEM
+    if _SEM is None:
+        with _SEM_LOCK:
+            if _SEM is None:
+                from src.config import load_ai_config
+                try:
+                    capacity = int(load_ai_config().get("concurrency", 4))
+                except Exception:
+                    capacity = 4
+                _SEM = threading.BoundedSemaphore(max(1, capacity))
+    return _SEM
 
 
 class LLMError(Exception):
@@ -80,9 +104,10 @@ class LLMClient:
         last = None
         for attempt in range(self.max_retries + 1):
             try:
-                resp = requests.post(self.base_url + "/chat/completions",
-                                     headers=self._headers(), json=payload,
-                                     timeout=self.timeout)
+                with _llm_semaphore():
+                    resp = requests.post(self.base_url + "/chat/completions",
+                                         headers=self._headers(), json=payload,
+                                         timeout=self.timeout)
                 if resp.status_code >= 400:
                     raise LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 data = resp.json()

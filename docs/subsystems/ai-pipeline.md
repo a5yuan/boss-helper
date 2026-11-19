@@ -28,6 +28,8 @@
 - **不重复联系**：已有 `tracking.json` 记录的岗位直接跳过，绝不重复点。
 - **每日额度可选**：`ai.daily_limit` 默认 0（不限）；设成正数时按当天
   `applied / shortlisted` 计数截断。
+- **LLM 全局限流**：`src/ai/client.py` 只有一个模块级 `BoundedSemaphore`，容量取
+  `ai.concurrency`；限的是真正发出的 `requests.post`，不按 `LLMClient` 实例各算一份。
 
 ## 依赖方向
 

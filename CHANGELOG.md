@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 采集结束后 AI 钩子使用本次采集返回的确切文件，不再 glob 最新 `jobs_*.json`；`plan_path_for` 改为跟随源文件目录
 - CDP 选页去平台化：`BrowserManager.list_pages` 返回全部 target，归属判断由适配器 `owns_url` 负责
 - 启动后校验端口与页面归属，找不到本平台页面就关闭进程退出；二级平台不再扫描 9222-9229
+- LLM 调用改为模块级全局限流：容量取 `ai.concurrency`，所有 `LLMClient` 共享，不再按实例各算一份
 
 ---
 
