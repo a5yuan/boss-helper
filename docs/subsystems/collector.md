@@ -77,6 +77,10 @@ src.collector → server.tracer（仅函数内延迟 import）
 **留在引擎的**：速度档位、条间延时、熔断阈值、重试与登录循环时序、日志格式、
 线程生命周期、停止/暂停信号、文件名与输出格式。这些是策略，不属于某个平台。
 
+接入新平台的验收方式见 `tests/test_fake_platform.py`：注册一个零网络适配器后，
+`run_collection(..., site="fake")` 必须能完整跑完并写出合法 JSON；
+任何平台 token 回到 `collector.py` 都会被该测试拦下。
+
 ## 已知陷阱
 
 - **CDP 分片超时**：`send_cdp` 每 2 秒 `recv` 一次以便响应停止；分片超时异常必须吞掉继续等，否则采集线程崩溃（55e1d30）。
@@ -90,7 +94,13 @@ src.collector → server.tracer（仅函数内延迟 import）
 
 ## 测试方式
 
-无自动化测试。手动：
+自动化（假平台，无需浏览器或网络）：
+
+```bash
+.venv/Scripts/python -m unittest tests.test_fake_platform -v
+```
+
+手动：
 
 ```bash
 python main.py --new -b chrome -n 3
