@@ -1,7 +1,6 @@
 import json
 import re
 import time
-from urllib.parse import quote
 
 
 def _dt(scope: str, fn: str, msg: str, data: dict | None = None):
@@ -22,6 +21,8 @@ def _trace_span(layer: str, fn: str, msg: str, scope: str = None):
     return decorator
 
 
+from src.adapters.base import SearchCriteria
+from src.adapters.boss import BossAdapter
 from src.config import get_config
 from src.core.browser import BrowserManager
 from src.core.extractor import VueExtractor, DetailPanelReader, CompanyOnlineReader
@@ -85,67 +86,7 @@ def _interruptible_sleep(ctrl, seconds):
         time.sleep(min(0.2, remaining))
 
 
-# 在页面内判断登录态。Cookie 优先 + DOM 兜底。
-# bst cookie 注销后立即消失，是最精准的已登录信号；DOM 元素作为兜底。
-_LOGIN_PROBE_JS = """
-(() => {
-  try {
-    // ① URL 守卫：不在 BOSS 域内直接返回 unknown，避免非 BOSS 页面抛异常
-    const url = (location.href || '').toLowerCase();
-    if (!url.includes('zhipin.com')) {
-      return JSON.stringify({ state: 'unknown', source: 'not_boss', url: location.href });
-    }
-
-    // ② bst cookie（最优先）——注销后立即消失，最干净
-    const cstr = document.cookie || '';
-    const hasBst = /(?:^|;\\s*)bst=/.test(cstr);
-
-    // ② ka=header-username（DOM 兜底1）——注销后消失，直接是人名文本
-    const hasUsername = !!document.querySelector('[ka="header-username"]');
-
-    // ③ ka=header-message（DOM 兜底2）——注销后消失
-    const hasMessage = !!document.querySelector('[ka="header-message"]');
-
-    if (hasBst || hasUsername || hasMessage) {
-      return JSON.stringify({
-        state: 'in',
-        source: hasBst ? 'bst_cookie' : (hasUsername ? 'ka-header-username' : 'ka-header-message'),
-        url: location.href
-      });
-    }
-
-    // 未登录：Header文案 + 二维码组合判断
-    const head = document.querySelector('header,.header,.nav-wrap,#header') || document.body;
-    const t = (head.innerText || '').slice(0, 500);
-    if (t.includes('登录/注册') || t.includes('登录 / 注册') || /(^|[\\s|])登录([\\s|]|$)/.test(t)) {
-      return JSON.stringify({ state: 'login', source: 'header_text', url: location.href });
-    }
-
-    const loginSel = '[class*="qrcode" i],[class*="login-register" i],[class*="sign-form" i],'
-      + '.login-pop,.sign-wrap,.btn-login,[ka="header-login"],[ka="header-register"]';
-    if (document.querySelector(loginSel)) {
-      return JSON.stringify({ state: 'login', source: 'qr_popup', url: location.href });
-    }
-
-    // 兜底：无法确认按未登录处理
-    return JSON.stringify({ state: 'unknown', source: 'none', url: location.href });
-  } catch (e) { return JSON.stringify({ state: 'unknown', source: 'error', error: String(e) }); }
-})()
-"""
-
-
-def _probe_login(browser):
-    """返回 'in' / 'login' / 'unknown'，source 指出判断依据。"""
-    try:
-        info = browser.get_value(browser.evaluate(_LOGIN_PROBE_JS))
-        if isinstance(info, dict):
-            return info.get("state") or "unknown", info.get("source") or "?"
-    except Exception:
-        pass
-    return "unknown", "exception"
-
-
-def _wait_search_ready(browser, timeout=14.0):
+def _wait_search_ready(browser, adapter, timeout=14.0):
     """导航后等待搜索结果列表渲染。
 
     返回：
@@ -162,14 +103,16 @@ def _wait_search_ready(browser, timeout=14.0):
             jobs = VueExtractor.extract(browser)
             _dt("H2", "_wait_search_ready", "vue_result", {"job_count": len(jobs) if jobs else 0})
             if jobs:
-                return "ok"
+                return {"ok": True, "state": "ready", "reason": ""}
         except Exception as exc:
             _dt("H2", "_wait_search_ready", "vue_exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
             pass
     # 没读取到卡片：判定登录态。明确已登录才算 timeout，否则按未登录（兜底）
-    login_state, _ = _probe_login(browser)
+    login = adapter.probe_login()
+    login_state = login.get("state")
     _dt("H2", "_wait_search_ready", "timeout_probe", {"login_state": login_state})
-    return "timeout" if login_state == "in" else "login"
+    state = "timeout" if login_state == "in" else "login"
+    return {"ok": False, "state": state, "reason": "results_not_loaded"}
 
 
 def _current_url(browser):
@@ -179,14 +122,14 @@ def _current_url(browser):
         return ""
 
 
-def _reconnect_boss(browser, ctrl):
+def _reconnect_boss(browser, adapter, ctrl):
     """重新定位活跃的 BOSS 标签页并重连 CDP。
 
     登录/验证后浏览器常切换或新开标签页，原 CDP 目标会失效，导致后续
     导航/取数"无反应"。每次人工介入后都重连，连到真正在用的那个页面。
     返回 True 表示已连上可用页面。
     """
-    page = browser.find_boss_page()
+    page = adapter.pick_target(browser.find_boss_pages())
     if not page:
         _dt("H1", "_reconnect_boss", "no_boss_page")
         return False
@@ -210,50 +153,11 @@ def _reconnect_boss(browser, ctrl):
     return True
 
 
-def get_salary_code(salary_min, salary_max):
-    # Normalize None / 0
-    s_min = salary_min if salary_min is not None else 0
-    s_max = salary_max if salary_max is not None else 0
-    if s_min == 0 and s_max == 3:
-        return "402"
-    elif s_min == 3 and s_max == 5:
-        return "403"
-    elif s_min == 5 and s_max == 10:
-        return "404"
-    elif s_min == 10 and s_max == 20:
-        return "405"
-    elif s_min == 20 and s_max == 50:
-        return "406"
-    elif s_min == 50 and s_max == 0:
-        return "407"
-    return None
-
-
 @_trace_span("BE-INTERNAL", "collector.py:_goto_search", "执行搜索结果页导航", scope="collect-start")
-def _goto_search(browser, query, city_code, ctrl, job_type="", degrees=None, experience=None, salary_min=None, salary_max=None, salary_fuzzy=False):
-    """按关键词（+城市等筛选）导航到 BOSS 搜索结果页，并等待列表。返回 _wait_search_ready 的状态。"""
-    params = []
-    if city_code:
-        params.append(f"city={city_code}")
-    if query:
-        params.append(f"query={quote(query)}")
-    if not salary_fuzzy:
-        if salary_code := get_salary_code(salary_min, salary_max):
-            params.append(f"salary={salary_code}")
-    if job_type:
-        params.append(f"jobType={job_type}")
-    if degrees:
-        deg_str = ",".join(str(d) for d in degrees if d)
-        if deg_str:
-            params.append(f"degree={deg_str}")
-    if experience:
-        exp_str = ",".join(str(e) for e in experience if e)
-        if exp_str:
-            params.append(f"experience={exp_str}")
-
-    url = "https://www.zhipin.com/web/geek/jobs"
-    if params:
-        url += "?" + "&".join(params)
+def _goto_search(browser, adapter, criteria, ctrl):
+    """按检索条件导航到搜索结果页，并等待列表。返回 Ready 字典。"""
+    query = criteria.get("query") or ""
+    url = adapter.search_url(criteria)
 
     ctrl.log(f"    导航至: {url}")
     # [H3] 记录导航开始
@@ -268,7 +172,7 @@ def _goto_search(browser, query, city_code, ctrl, job_type="", degrees=None, exp
         # [H3] 记录异常（超时被误判为 login 的关键证据）
         _dt("H3", "_goto_search", "eval_exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
         ctrl.log(f"    [!] 导航指令发送失败（页面可能已切换）: {exc}")
-        return "login"
+        return {"ok": False, "state": "login", "reason": "navigation_failed"}
     # 给页面一点跳转时间，再确认实际落地的 URL，便于发现"没跳成功"
     time.sleep(1.0)
     landed = _current_url(browser)
@@ -276,10 +180,10 @@ def _goto_search(browser, query, city_code, ctrl, job_type="", degrees=None, exp
         # [H3] 记录实际落地的 URL（判断跳转是否成功）
         _dt("H3", "_goto_search", "landed_url", {"landed": landed[:100], "matches_query": query in landed})
         ctrl.log(f"    当前页面: {landed[:80]}")
-    status = _wait_search_ready(browser)
+    ready = _wait_search_ready(browser, adapter)
     # [H2/H3] 记录最终状态
-    _dt("H3", "_goto_search", "wait_search_done", {"status": status})
-    return status
+    _dt("H3", "_goto_search", "wait_search_done", {"status": ready.get("state")})
+    return ready
 
 
 # ============ 主流程调度器 ============
@@ -321,6 +225,18 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效
     writer = OutputWriter(config["output_dir"], tag=out_tag)
     behavior = BrowserBehavior(speed)
+    adapter = BossAdapter(browser)
+
+    criteria = SearchCriteria(
+        query=query,
+        city_code=city_code,
+        job_type=job_type,
+        degrees=list(degrees or []),
+        experience=list(experience or []),
+        salary_min=salary_min,
+        salary_max=salary_max,
+        salary_fuzzy=salary_fuzzy,
+    )
 
     ctrl.log(f"\n   已有数据: {len(writer.all_jobs)} 条")
     ctrl.log(f"   输出路径: {config['output_dir']}")
@@ -341,7 +257,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         ctrl.log(f"   [+] 新 {browser_type.capitalize()} 就绪")
 
     # ===== 检查是否已有 BOSS 页面 =====
-    boss_page = browser.find_boss_page()
+    boss_page = adapter.pick_target(browser.find_boss_pages())
 
     if keyword_mode:
         # ---- 关键词路线：不做"直接分析该页面"确认，稍后自动导航搜索页 ----
@@ -354,7 +270,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 "完成后点「我已完成，继续」。",
                 kind="login",
             )
-            boss_page = browser.find_boss_page()
+            boss_page = adapter.pick_target(browser.find_boss_pages())
             if not boss_page:
                 ctrl.log("[-] 未找到 zhipin.com 页面")
                 ctrl.status("error", "no zhipin page")
@@ -380,7 +296,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             ctrl.log("=" * 60)
             ctrl.wait_user("\n[等待中...按回车开始分析]: ", kind="confirm")
 
-            boss_page = browser.find_boss_page()
+            boss_page = adapter.pick_target(browser.find_boss_pages())
             if not boss_page:
                 ctrl.log("[-] 未找到 zhipin.com 页面")
                 ctrl.status("error", "no zhipin page")
@@ -416,13 +332,15 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             time.sleep(1.5)
 
             _dt("L2", "_ensure_logged_in", "probe_start")
-            state, source = _probe_login(browser)
+            probe = adapter.probe_login()
+            state, source = probe["state"], probe["source"]
             _dt("L2", "_ensure_logged_in", "probe_result", {"state": state, "source": source})
 
             # 容错：probe 返回 "login"（JS 误判：已登录页残留登录入口元素）时重检一次
             if state == "login":
                 _dt("L2", "_ensure_logged_in", "probe_retry")
-                state, source = _probe_login(browser)
+                probe = adapter.probe_login()
+                state, source = probe["state"], probe["source"]
                 _dt("L2", "_ensure_logged_in", "probe_retry_result", {"state": state, "source": source})
 
             if state == "in":
@@ -464,7 +382,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                 # ── L1: 登录后标签页/CDP 目标可能已切换，先重连 ──────────────
                 _dt("L1", "_ensure_logged_in", "reconnect_after_scan")
-                if not _reconnect_boss(browser, ctrl):
+                if not _reconnect_boss(browser, adapter, ctrl):
                     ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
                     _dt("L1", "_ensure_logged_in", "reconnect_failed")
                     continue
@@ -478,7 +396,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                     _dt("L3", "_ensure_logged_in", "reload_exc", {"exc": str(exc)})
                 time.sleep(2.0)
 
-                state, source = _probe_login(browser)
+                probe = adapter.probe_login()
+                state, source = probe["state"], probe["source"]
                 _dt("L2", "_ensure_logged_in", "reprobe_after_login", {"state": state, "source": source})
                 ctrl.log(f"   [*] 登录态复检: {state} (via {source})")
 
@@ -494,9 +413,6 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         current = _current_url(browser)
         is_already_on_target = False
 
-        from urllib.parse import urlparse, parse_qs
-        parsed_url = urlparse(current)
-
         _dt("collect-start", "run_collection.page_reuse_check", "check_begin", {
             "current_url": current,
             "query": query,
@@ -508,61 +424,18 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             "salary_max": salary_max
         })
 
-        if "zhipin.com/web/geek/job" in current:
-            qs = parse_qs(parsed_url.query)
-            
-            # 1. Query match (comparing decoded query string)
-            current_query = qs.get("query", [""])[0]
-            query_match = (current_query == query)
-            
-            # 2. City match
-            current_city = qs.get("city", [""])[0]
-            expected_city = str(city_code) if city_code else ""
-            city_match = (current_city == expected_city)
-            
-            # 3. Salary match
-            if salary_fuzzy:
-                expected_salary_code = ""
-            else:
-                expected_salary_code = get_salary_code(salary_min, salary_max) or ""
-            current_salary = qs.get("salary", [""])[0]
-            salary_match = (current_salary == expected_salary_code)
-            
-            # 4. Job Type match
-            expected_job_type = str(job_type) if job_type else ""
-            current_job_type = qs.get("jobType", [""])[0]
-            job_type_match = (current_job_type == expected_job_type)
-            
-            # 5. Degree match
-            current_degree_str = qs.get("degree", [""])[0]
-            current_degrees = [d for d in current_degree_str.split(",") if d] if current_degree_str else []
-            expected_degrees = [str(d) for d in (degrees or []) if d]
-            degree_match = (set(current_degrees) == set(expected_degrees))
-            
-            # 6. Experience match
-            current_exp_str = qs.get("experience", [""])[0]
-            current_exps = [e for e in current_exp_str.split(",") if e] if current_exp_str else []
-            expected_exps = [str(e) for e in (experience or []) if e]
-            experience_match = (set(current_exps) == set(expected_exps))
+        matched = adapter.matches_criteria(current, criteria)
+        _dt("collect-start", "run_collection.page_reuse_check", "match_results", {"matched": matched})
 
-            _dt("collect-start", "run_collection.page_reuse_check", "match_results", {
-                "query_match": query_match,
-                "city_match": city_match,
-                "salary_match": salary_match,
-                "job_type_match": job_type_match,
-                "degree_match": degree_match,
-                "experience_match": experience_match
+        if matched:
+            login = adapter.probe_login()
+            login_state, login_src = login["state"], login["source"]
+            _dt("collect-start", "run_collection.page_reuse_check", "login_check", {
+                "login_state": login_state,
+                "login_src": login_src
             })
-            
-            if (query_match and city_match and salary_match and 
-                    job_type_match and degree_match and experience_match):
-                login_state, login_src = _probe_login(browser)
-                _dt("collect-start", "run_collection.page_reuse_check", "login_check", {
-                    "login_state": login_state,
-                    "login_src": login_src
-                })
-                if login_state == "in":
-                    is_already_on_target = True
+            if login_state == "in":
+                is_already_on_target = True
 
         _dt("collect-start", "run_collection.page_reuse_check", "check_end", {
             "is_already_on_target": is_already_on_target
@@ -570,7 +443,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
         if is_already_on_target:
             ctrl.log("   [+] [智能优化] 浏览器已处于目标页面，跳过页面重载，已激活「无缝续接」整理模式！")
-            nav_status = "ok"
+            nav_status = {"ok": True, "state": "ready", "reason": ""}
             if hasattr(ctrl, "events"):
                 ctrl.events.put({"type": "seamless_mode", "enabled": True})
         else:
@@ -584,26 +457,18 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             _dt("L3", "run_collection", "navigation_start", {"query": query, "city": city_name or city_code or "current"})
             ctrl.log(f"\n[*] 自动搜索: 关键词='{query}' 城市='{city_name or city_code or '当前城市'}'")
 
-            nav_status = _goto_search(
-                browser, query, city_code, ctrl,
-                job_type=job_type,
-                degrees=degrees,
-                experience=experience,
-                salary_min=salary_min,
-                salary_max=salary_max,
-                salary_fuzzy=salary_fuzzy
-            )
-            _dt("L3", "run_collection", "goto_search_done", {"status": nav_status})
+            nav_status = _goto_search(browser, adapter, criteria, ctrl)
+            _dt("L3", "run_collection", "goto_search_done", {"status": nav_status.get("state")})
 
         # ── L4: 搜索结果等待循环（重连后 / 验证后 / 页面卡住时复用）────
-        while nav_status != "ok":
+        while nav_status.get("state") != "ready":
             if ctrl.should_stop():
                 ctrl.log("\n[*] 已停止")
                 browser.disconnect()
                 ctrl.status("stopped")
                 return
 
-            if nav_status == "login":
+            if nav_status.get("state") == "login":
                 # L4→L2 回环：检测到未登录，重新进入扫码登录
                 _dt("L4", "run_collection", "status_login_loop_back")
                 ctrl.log("   [!] 检测到登录态已失效，请重新扫码登录")
@@ -636,7 +501,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                     # ── L1: 重连 ─────────────────────────────────────────────
                     _dt("L1", "run_collection", "reconnect_before_reprobe")
-                    if not _reconnect_boss(browser, ctrl):
+                    if not _reconnect_boss(browser, adapter, ctrl):
                         ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
                         continue
 
@@ -649,7 +514,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                         _dt("L3", "run_collection", "login_loop_reload_exc", {"exc": str(exc)})
                     time.sleep(2.0)
 
-                    state, source = _probe_login(browser)
+                    probe = adapter.probe_login()
+                    state, source = probe["state"], probe["source"]
                     _dt("L2", "run_collection", "reprobe_after_relogin", {"state": state, "source": source})
 
                     if state == "in":
@@ -661,16 +527,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                 # L2→L3: 登录确认后重新导航
                 _dt("L3", "run_collection", "relayout_after_relogin", {"query": query})
-                nav_status = _goto_search(
-                    browser, query, city_code, ctrl,
-                    job_type=job_type,
-                    degrees=degrees,
-                    experience=experience,
-                    salary_min=salary_min,
-                    salary_max=salary_max,
-                    salary_fuzzy=salary_fuzzy
-                )
-                _dt("L3", "run_collection", "relayout_done", {"status": nav_status})
+                nav_status = _goto_search(browser, adapter, criteria, ctrl)
+                _dt("L3", "run_collection", "relayout_done", {"status": nav_status.get("state")})
             else:
                 # timeout：已登录但页面加载慢
                 _dt("L4", "run_collection", "status_timeout_wait_user")
@@ -680,18 +538,10 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                     kind="page_confirm",
                 )
                 _dt("L1", "run_collection", "reconnect_after_timeout_wait")
-                if not _reconnect_boss(browser, ctrl):
+                if not _reconnect_boss(browser, adapter, ctrl):
                     ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
-                nav_status = _goto_search(
-                    browser, query, city_code, ctrl,
-                    job_type=job_type,
-                    degrees=degrees,
-                    experience=experience,
-                    salary_min=salary_min,
-                    salary_max=salary_max,
-                    salary_fuzzy=salary_fuzzy
-                )
-                _dt("L3", "run_collection", "relayout_after_timeout", {"status": nav_status})
+                nav_status = _goto_search(browser, adapter, criteria, ctrl)
+                _dt("L3", "run_collection", "relayout_after_timeout", {"status": nav_status.get("state")})
 
         # ── L4: 搜索结果已加载，继续 Step 3 ─────────────────────────
         _dt("L4", "run_collection", "search_results_ready")
@@ -770,16 +620,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 if keyword_mode and not ctrl.should_stop():
                     # 关键词路线：继续时重连活跃页面 + 按关键词重新导航，避免读到无关页面
                     _dt("H4", "run_collection", "empty_jobs_reconnect")
-                    _reconnect_boss(browser, ctrl)
-                    _goto_search(
-                        browser, query, city_code, ctrl,
-                        job_type=job_type,
-                        degrees=degrees,
-                        experience=experience,
-                        salary_min=salary_min,
-                        salary_max=salary_max,
-                        salary_fuzzy=salary_fuzzy
-                    )
+                    _reconnect_boss(browser, adapter, ctrl)
+                    _goto_search(browser, adapter, criteria, ctrl)
                 continue
 
         # 遍历当前列表中的岗位

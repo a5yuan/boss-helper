@@ -132,28 +132,10 @@ class BrowserManager:
     def find_boss_page(self):
         """通过 HTTP GET /json 找到 BOSS 直聘标签页。
 
-        优先级：可见的 geek 招聘页 > 任意 zhipin 普通页 > 任意 zhipin 目标。
-        登录后浏览器常新开/切换标签页，这里挑"最像在用"的那个，避免连到失效目标。
+        标签页评分属于平台知识，交给适配器的 pick_target；这里只做 /json 拉取。
         """
-        pages = self.find_boss_pages()
-        if not pages:
-            return None
-
-        def score(p):
-            url = p.get("url", "")
-            s = 0
-            if p.get("type") == "page":
-                s += 10
-            if "/web/geek/" in url:
-                s += 5
-            if "jobs" in url:
-                s += 2
-            if "login" in url or "/web/user" in url:
-                s -= 8
-            return s
-
-        pages.sort(key=score, reverse=True)
-        return pages[0]
+        from src.adapters.boss import BossAdapter
+        return BossAdapter().pick_target(self.find_boss_pages())
 
     def find_boss_pages(self):
         """返回全部 zhipin.com 标签页（type=page 优先），用于多标签场景。"""
