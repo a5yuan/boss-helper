@@ -471,7 +471,7 @@ def _click_chat(bm, attempts: int = 6, interval: float = 0.35) -> dict:
 def api_focus(body: FocusBody):
     if not (body.security_id or body.encrypt_job_id):
         return {"ok": False, "error": "缺少岗位 ID"}
-    from src.utils.browser_behavior import BrowserBehavior
+    from src.adapters.boss import BossAdapter
 
     job = _find_job(body.security_id, body.encrypt_job_id) or {}
     eid = body.encrypt_job_id or job.get("encrypt_job_id") or ""
@@ -481,7 +481,8 @@ def api_focus(body: FocusBody):
         clicked, pos, total = False, -1, 0
         if body.security_id:
             try:
-                clicked, pos, total = BrowserBehavior.click_job(bm, body.security_id)
+                click = BossAdapter(bm).click_card(body.security_id)
+                clicked, pos, total = click["ok"], click["index"], click["total"]
             except Exception:
                 pass
         if clicked:

@@ -1,6 +1,6 @@
 """公司在线状态的纯逻辑：三态归类与证据格式化。
 
-只做纯函数，不接触浏览器；探针结果由 ``CompanyOnlineReader`` 从页面读取。
+只做纯函数，不接触浏览器；探针结果由 ``BossAdapter.probe_online`` 从页面读取。
 """
 
 STATE_ONLINE = "online"

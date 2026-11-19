@@ -3,11 +3,36 @@
 只依赖注入的页面门面，不处理端口、进程、标签页发现和文件。
 登录重连、熔断、失败计数等策略留在引擎里。
 """
+import json
+import sys
+import time
 from urllib.parse import parse_qs, quote, urlparse
 
-from src.adapters.base import LoginProbe, Page, SearchCriteria, Tab
+from src.adapters.base import (
+    ClickResult,
+    JobCard,
+    ListResult,
+    LoginProbe,
+    OnlineProbe,
+    Page,
+    Ready,
+    SearchCriteria,
+    Tab,
+)
+from src.core.browser import StopError
+from src.core.js_loader import load_js
 
 SEARCH_BASE = "https://www.zhipin.com/web/geek/jobs"
+
+# 点击卡片的本地等待，默认值与 browser_behavior.click_job 的历史默认值一致；
+# 引擎按速度档位覆盖。
+DEFAULT_CLICK_TIMING = {"scroll_wait_ms": 600, "click_delay_ms": 300, "click_settle_s": 0.5}
+
+
+def _dt(scope: str, fn: str, msg: str, data: dict | None = None):
+    """写入 tracer（延迟导入避免循环依赖）。"""
+    from server.tracer import tracer
+    tracer.internal(f"boss.py:{fn}", msg, data or {}, scope=scope)
 
 
 # 在页面内判断登录态。Cookie 优先 + DOM 兜底。
@@ -81,8 +106,13 @@ def get_salary_code(salary_min, salary_max):
 class BossAdapter:
     site = "boss"
 
-    def __init__(self, page: Page | None = None):
+    def __init__(self, page: Page | None = None, click_timing: dict | None = None):
         self.page = page
+        self._click_timing = dict(DEFAULT_CLICK_TIMING)
+        if click_timing:
+            for key in self._click_timing:
+                if key in click_timing:
+                    self._click_timing[key] = click_timing[key]
 
     def pick_target(self, targets: list[Tab]) -> Tab | None:
         """从 zhipin 标签页里挑"最像在用"的那个，避免连到失效目标。
@@ -192,3 +222,252 @@ class BossAdapter:
 
         return (query_match and city_match and salary_match and
                 job_type_match and degree_match and experience_match)
+
+    def wait_results(self, timeout: float = 14.0) -> Ready:
+        """导航后等待搜索结果列表渲染。
+
+        state：
+          ready   已读取到卡片（已登录且有结果）
+          login   疑似未登录（兜底：非明确已登录都归此类）
+          timeout 已登录但暂无结果 / 加载较慢
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(0.5)
+            # [H2] 每个轮询轮次都记录
+            _dt("H2", "wait_results", "poll", {"elapsed": f"{max(0, deadline - time.time()):.1f}s_left"})
+            result = self.list_jobs()
+            jobs = result.get("jobs") or []
+            _dt("H2", "wait_results", "vue_result", {"job_count": len(jobs)})
+            if jobs:
+                return {"ok": True, "state": "ready", "reason": ""}
+        # 没读取到卡片：判定登录态。明确已登录才算 timeout，否则按未登录（兜底）
+        login = self.probe_login()
+        login_state = login.get("state")
+        _dt("H2", "wait_results", "timeout_probe", {"login_state": login_state})
+        state = "timeout" if login_state == "in" else "login"
+        return {"ok": False, "state": state, "reason": "results_not_loaded"}
+
+    def list_jobs(self) -> ListResult:
+        """从 Vue 组件树取当前列表，映射成 JobCard。"""
+        if self.page is None:
+            return {"ok": False, "jobs": [], "reason": "no_page"}
+        try:
+            raw = self.page.get_value(self.page.evaluate(load_js("extract_list.js")))
+            if isinstance(raw, str):
+                raw = json.loads(raw or "[]")
+            if raw is None:
+                raw = []
+            if not isinstance(raw, list):
+                raise TypeError(f"unexpected list type: {type(raw).__name__}")
+            cards = [self._to_card(item) for item in raw if isinstance(item, dict)]
+            return {"ok": True, "jobs": cards, "reason": ""}
+        except StopError:
+            raise
+        except Exception as exc:
+            _dt("L5", "list_jobs", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
+            return {"ok": False, "jobs": [], "reason": f"evaluate_failed:{type(exc).__name__}"}
+
+    @staticmethod
+    def _to_card(item: dict) -> JobCard:
+        return {
+            "job_id": item.get("securityId") or "",
+            "title": item.get("jobName", "?"),
+            "salary": item.get("salaryDesc", ""),
+            "area": item.get("areaDistrict", ""),
+            "company": item.get("brandName", ""),
+            "raw": item,
+        }
+
+    def probe_online(self, job_id: str) -> OnlineProbe:
+        """读取单张卡片的公司在线状态（仅本地 DOM / Vue，不发请求）。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page", "evidence": {}}
+        try:
+            # 转义方式与点击卡片的脚本一致
+            sid_e = job_id.replace("\\", "\\\\").replace("'", "\\'")
+            js = load_js("read_company_online.js", {"'__SID__'": f"'{sid_e}'"})
+            result = self.page.evaluate(js)
+            raw = self.page.get_value(result)
+            if isinstance(raw, str):
+                return json.loads(raw or "{}")
+            if not isinstance(raw, dict):
+                # 页面返回了无法解释的类型，转成异常走统一失败分支
+                raise TypeError(f"unexpected probe type: {type(raw).__name__}")
+            return raw
+        except StopError:
+            raise
+        except Exception as exc:
+            return {
+                "ok": False,
+                "reason": f"evaluate_failed:{type(exc).__name__}",
+                "evidence": {},
+            }
+
+    def click_card(self, job_id: str) -> ClickResult:
+        """点击目标卡片，Vue clickJobCard() 优先，DOM card.click() 兜底。
+
+        index 是卡片在页面中的位置，total 是本页卡片总数。
+        """
+        if self.page is None:
+            return {"ok": False, "index": -1, "total": 0, "reason": "no_page"}
+        sid_e = job_id.replace("\\", "\\\\").replace("'", "\\'")
+        subs = {
+            "'__SID__'": f"'{sid_e}'",
+            "__SCROLL_WAIT__": str(int(self._click_timing["scroll_wait_ms"])),
+            "__CLICK_DELAY__": str(int(self._click_timing["click_delay_ms"])),
+        }
+        settle_s = self._click_timing["click_settle_s"]
+        try:
+            _dt("click_job", "vue_try", {"sid": job_id[:30]})
+            vue_js = load_js("click_vue.js", subs)
+            r = self.page.evaluate(vue_js, await_promise=False)
+            raw = self.page.get_value(r)
+            if isinstance(raw, str):
+                try:
+                    info = json.loads(raw or "{}")
+                except Exception:
+                    info = {}
+            else:
+                info = raw if raw is not None else {}
+            if isinstance(info, dict) and info.get("ok"):
+                if settle_s:
+                    time.sleep(settle_s)
+                _dt("click_job", "vue_hit", {"index": info.get("index"), "total": info.get("total")})
+                return {"ok": True, "index": info.get("index", 0),
+                        "total": info.get("total", 0), "reason": ""}
+
+            _dt("click_job", "dom_try", {"sid": job_id[:30]})
+            dom_js = load_js("click_dom.js", subs)
+            r = self.page.evaluate(dom_js, await_promise=False)
+            raw = self.page.get_value(r)
+            if isinstance(raw, str):
+                info = json.loads(raw or "{}")
+            else:
+                info = raw if raw is not None else {}
+            if info.get("found"):
+                if settle_s:
+                    time.sleep(settle_s)
+                _dt("click_job", "dom_hit", {"index": info.get("index"), "total": info.get("total")})
+                return {"ok": True, "index": info.get("index", 0),
+                        "total": info.get("total", 0), "reason": ""}
+
+            _dt("click_job", "not_found", {"sid": job_id[:30], "total": info.get("total", 0)})
+            return {"ok": False, "index": -1, "total": info.get("total", 0), "reason": "not_found"}
+        except StopError:
+            raise
+        except Exception as exc:
+            _dt("click_job", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
+            return {"ok": False, "index": -1, "total": 0,
+                    "reason": f"evaluate_failed:{type(exc).__name__}"}
+
+    def read_detail(self, job_id: str, max_wait: float = 1.5) -> dict:
+        """从页面 Vue 状态（$data.currentJob / $data.jobDetail）读取详情。
+
+        关键发现（来自 find_jd_company_intro.py 诊断）：
+          - $data.currentJob           → ✅ 同步到位（薪资/boss/品牌/技能/福利）
+          - $data.jobDetail.jobInfo    → ✅ 异步稍晚（JD 明文 postDescription）
+          - $data.jobDetail.brandComInfo → ✅ 异步稍晚（公司介绍 introduce）
+
+        两者是同一个 .page-jobs-main 组件里的平行属性，加载时机不同。
+        提取策略：
+          1. 先读 currentJob（150ms 轮询，~1-2 轮即命中）
+          2. currentJob 命中后，继续等待 jobDetail（最多再等 2s）
+          3. jobDetail 就位后合并 JD + 公司介绍
+        """
+        STEP = 0.15
+        try:
+            if self.page is None:
+                return {"error": "no_page", "message": "没有可用的页面"}
+            sys.stdout.write("      [")
+            sys.stdout.flush()
+
+            # --- 阶段1: 快速探测 currentJob ---
+            elapsed = 0.0
+            base_data = None
+            while elapsed < max_wait:
+                js = self._make_panel_js(job_id, include_job_detail=False)
+                result = self.page.evaluate(js)
+                raw = self.page.get_value(result)
+                if isinstance(raw, str):
+                    parsed = json.loads(raw or "{}")
+                else:
+                    parsed = raw if raw is not None else {}
+
+                if parsed.get("found"):
+                    base_data = parsed
+                    break
+
+                time.sleep(STEP)
+                elapsed += STEP
+
+            if not base_data:
+                sys.stdout.write("超时]\n")
+                sys.stdout.flush()
+                return {"error": "timeout", "message": f"详情面板未更新 ({max_wait}s)"}
+
+            # --- 阶段2: 探测异步到位的 jobDetail (JD/介绍) ---
+            # 即使 base_data 到了，JD 可能还在路上，我们再给点缓冲时间
+            jd_max_wait = 2.0
+            jd_elapsed = 0.0
+            final_data = base_data
+
+            while jd_elapsed < jd_max_wait:
+                js2 = self._make_panel_js(job_id, include_job_detail=True)
+                result2 = self.page.evaluate(js2)
+                raw2 = self.page.get_value(result2)
+                if isinstance(raw2, str):
+                    parsed2 = json.loads(raw2 or "{}")
+                else:
+                    parsed2 = raw2 if raw2 is not None else {}
+
+                if parsed2.get("found") and (parsed2.get("postDescription") or parsed2.get("introduce")):
+                    final_data = parsed2
+                    break
+
+                time.sleep(STEP)
+                jd_elapsed += STEP
+
+            sys.stdout.write(f"OK {elapsed+jd_elapsed:.1f}s]\n")
+            sys.stdout.flush()
+
+            return {
+                "success": True,
+                "source": "currentJob+jobDetail",
+                "security_id": final_data.get("sid", ""),
+                "encrypt_job_id": final_data.get("encryptJobId", ""),
+                "title":       final_data.get("jobName", ""),
+                "salary":      final_data.get("salaryDesc", ""),
+                "location":    final_data.get("locationName", ""),
+                "experience":  final_data.get("experienceName", ""),
+                "degree":      final_data.get("degreeName", ""),
+                "jd":          final_data.get("postDescription", "") or final_data.get("jobDescription", ""),
+                "skills":      final_data.get("skills", []),
+                "welfare":     final_data.get("welfareList", []),
+                "job_labels":  final_data.get("jobLabels", []),
+                "address":     final_data.get("address", ""),
+                "longitude":   final_data.get("longitude"),
+                "latitude":    final_data.get("latitude"),
+                "boss_name":   final_data.get("bossName", ""),
+                "boss_title":  final_data.get("bossTitle", ""),
+                "boss_active": final_data.get("bossActiveTime", ""),
+                "company":     final_data.get("brandName", ""),
+                "company_stage":  final_data.get("brandStageName", ""),
+                "company_scale":  final_data.get("brandScaleName", ""),
+                "industry":    final_data.get("industryName") or final_data.get("brandIndustry", ""),
+                "company_intro": final_data.get("introduce", ""),
+                "company_labels": final_data.get("labels") or final_data.get("brandLabels", []),
+                "platform":    self.site,
+            }
+        except StopError:
+            raise
+        except Exception as exc:
+            sys.stdout.write(f"异常]\n")
+            sys.stdout.flush()
+            return {"error": "exception", "message": f"{type(exc).__name__}: {exc}"}
+
+    @staticmethod
+    def _make_panel_js(target_sid, include_job_detail=False):
+        sid_e = target_sid.replace("\\", "\\\\").replace("'", "\\'")
+        extra = load_js("read_panel_extra.js") if include_job_detail else ""
+        return load_js("read_panel.js", {"'__SID__'": f"'{sid_e}'", "__EXTRA__": extra})

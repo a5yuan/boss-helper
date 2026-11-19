@@ -25,7 +25,6 @@ from src.adapters.base import SearchCriteria
 from src.adapters.boss import BossAdapter
 from src.config import get_config
 from src.core.browser import BrowserManager
-from src.core.extractor import VueExtractor, DetailPanelReader, CompanyOnlineReader
 from src.utils.browser_behavior import BrowserBehavior, resolve_speed
 from src.utils.company_online import (
     STATE_OFFLINE,
@@ -84,35 +83,6 @@ def _interruptible_sleep(ctrl, seconds):
             if ctrl.should_stop():
                 return
         time.sleep(min(0.2, remaining))
-
-
-def _wait_search_ready(browser, adapter, timeout=14.0):
-    """导航后等待搜索结果列表渲染。
-
-    返回：
-      'ok'      已读取到卡片（已登录且有结果）
-      'login'   疑似未登录（兜底：非明确已登录都归此类）
-      'timeout' 已登录但暂无结果 / 加载较慢
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        time.sleep(0.5)
-        # [H2] 每个轮询轮次都记录
-        _dt("H2", "_wait_search_ready", "poll", {"elapsed": f"{max(0,deadline-time.time()):.1f}s_left"})
-        try:
-            jobs = VueExtractor.extract(browser)
-            _dt("H2", "_wait_search_ready", "vue_result", {"job_count": len(jobs) if jobs else 0})
-            if jobs:
-                return {"ok": True, "state": "ready", "reason": ""}
-        except Exception as exc:
-            _dt("H2", "_wait_search_ready", "vue_exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
-            pass
-    # 没读取到卡片：判定登录态。明确已登录才算 timeout，否则按未登录（兜底）
-    login = adapter.probe_login()
-    login_state = login.get("state")
-    _dt("H2", "_wait_search_ready", "timeout_probe", {"login_state": login_state})
-    state = "timeout" if login_state == "in" else "login"
-    return {"ok": False, "state": state, "reason": "results_not_loaded"}
 
 
 def _current_url(browser):
@@ -180,7 +150,7 @@ def _goto_search(browser, adapter, criteria, ctrl):
         # [H3] 记录实际落地的 URL（判断跳转是否成功）
         _dt("H3", "_goto_search", "landed_url", {"landed": landed[:100], "matches_query": query in landed})
         ctrl.log(f"    当前页面: {landed[:80]}")
-    ready = _wait_search_ready(browser, adapter)
+    ready = adapter.wait_results()
     # [H2/H3] 记录最终状态
     _dt("H3", "_goto_search", "wait_search_done", {"status": ready.get("state")})
     return ready
@@ -225,7 +195,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效
     writer = OutputWriter(config["output_dir"], tag=out_tag)
     behavior = BrowserBehavior(speed)
-    adapter = BossAdapter(browser)
+    adapter = BossAdapter(browser, click_timing=behavior.profile)
 
     criteria = SearchCriteria(
         query=query,
@@ -590,13 +560,13 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         prev_success_count = success_count
 
         # 每次循环开始都重新提取一次列表，确保数据是最新的
-        jobs = VueExtractor.extract(browser)
+        jobs = adapter.list_jobs().get("jobs") or []
         if not jobs:
             ctrl.log("   [*] 页面上未探测到岗位，尝试向下滚动加载 ...")
             behavior.auto_scroll_list(browser)
             _interruptible_sleep(ctrl, 2)
             # 再次检查
-            jobs = VueExtractor.extract(browser)
+            jobs = adapter.list_jobs().get("jobs") or []
             if not jobs:
                 ctrl.log(f"\n   [!] 仍无新数据。还差 {count - success_count} 条。")
                 result = ctrl.wait_user(
@@ -608,7 +578,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                 if result == "manual_scroll":
                     # 用户已在浏览器手动滚动/翻页 → 立即重新提取，有数据就直接采集
-                    jobs = VueExtractor.extract(browser)
+                    jobs = adapter.list_jobs().get("jobs") or []
                     if jobs:
                         _dt("H4", "run_collection", "manual_scroll_recovered", {"count": len(jobs)})
                         ctrl.log(f"   [+] 检测到 {len(jobs)} 条，继续采集")
@@ -625,7 +595,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 continue
 
         # 遍历当前列表中的岗位
-        for job_meta in jobs:
+        for card in jobs:
             if success_count >= count:
                 break
             if ctrl.should_stop():
@@ -635,23 +605,23 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 if ctrl.should_stop():
                     break
 
-            sid = job_meta.get("securityId")
+            sid = card.get("job_id")
             if not sid or sid in processed_sids:
                 continue
 
             # === 熔断检测：登录失效/数据脱敏 ===
-            salary_desc = job_meta.get("salaryDesc", "")
+            salary_desc = card.get("salary", "")
             if not salary_desc or "****" in salary_desc:
                 ctrl.log(f"\n  [BREAK] 熔断保护: 检测到异常薪资数据 ('{salary_desc}')")
                 ctrl.log(f"      这通常意味着登录已过期或页面未完全加载。")
                 ctrl.log(f"      请在浏览器中确认登录状态，【手动刷新页面】。")
                 ctrl.wait_user("  [>] 处理完成后按回车，程序将重新扫描页面 ...", kind="login")
-                # 跳出 for 循环，回到 while 开头重新执行 VueExtractor.extract(browser)
+                # 跳出 for 循环，回到 while 开头重新执行 adapter.list_jobs()
                 break
 
             processed_sids.add(sid)
-            job_name = job_meta.get("jobName", "?")
-            brand_name = job_meta.get("brandName", "")
+            job_name = card.get("title", "?")
+            brand_name = card.get("company", "")
 
             # === 薪资粗筛：列表 salaryDesc 超出请求区间则跳过（在提取详情前，省时间）===
             if (salary_min is not None or salary_max is not None) and \
@@ -662,7 +632,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 continue
 
             # === 查重（title + company + 区域；区域缺失时回退旧口径）===
-            if writer.is_duplicate(job_name, brand_name, job_meta.get("areaDistrict", "")):
+            if writer.is_duplicate(job_name, brand_name, card.get("area", "")):
                 skip_count += 1
                 ctrl.log(f"  [SKIP] 重复: {job_name[:20]} | {brand_name[:10]}")
                 _emit_progress()
@@ -670,7 +640,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
             # === 公司在线状态门禁：离线不点击卡片、不读详情 ===
             # 放在 processed_sids.add 之后，跳过的卡片本轮不会再被探测。
-            probe = CompanyOnlineReader.read(browser, sid)
+            probe = adapter.probe_online(sid)
             online_state = classify_online(probe)
             evidence = probe.get("evidence") if isinstance(probe.get("evidence"), dict) else {}
             trace_data = {"sid": sid[:12], "brand": brand_name[:10]}
@@ -702,7 +672,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             scroll_top_before = scroll_before.get("scrollTop", 0)
 
             # === 通过 securityId 精确点击卡片 (不再用名字匹配) ===
-            clicked, card_pos, card_total = behavior.click_card_by_sid(browser, sid, job_name)
+            click = adapter.click_card(sid)
+            clicked, card_pos, card_total = click["ok"], click["index"], click["total"]
 
             if not clicked:
                 fail_count += 1
@@ -728,7 +699,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             ctrl.log(f"  [RUN] #{task_num}/{count} [{pos_info}] {job_name[:25]}", end="")
 
             # === Vue 面板直读（本地读取，仅从页面 Vue 状态提取）===
-            detail = DetailPanelReader.read_detail(browser, sid, max_wait=1.5)
+            detail = adapter.read_detail(sid)
 
             if detail.get("success"):
                 # 详情拿到 encryptJobId 后再精确查一次，防止跨区域/跨文件重复

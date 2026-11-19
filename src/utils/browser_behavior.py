@@ -95,67 +95,6 @@ class BrowserBehavior:
         return True
 
     @staticmethod
-    def click_job(chrome, security_id, scroll_wait_ms=600, click_delay_ms=300, settle_s=0.5):
-        """
-        点击目标卡片，Vue clickJobCard() 优先，DOM card.click() 兜底。
-
-        通过 securityId 精确匹配 Vue 组件并点击对应卡片。
-        scroll_wait_ms / click_delay_ms / settle_s 控制点击前后的等待，由速度档位决定。
-
-        返回 (是否成功, 卡片在页面中的位置索引, 总卡片数)
-        """
-        sid_e = security_id.replace("\\", "\\\\").replace("'", "\\'")
-        subs = {
-            "'__SID__'": f"'{sid_e}'",
-            "__SCROLL_WAIT__": str(int(scroll_wait_ms)),
-            "__CLICK_DELAY__": str(int(click_delay_ms)),
-        }
-
-        _dt("click_job", "vue_try", {"sid": security_id[:30]})
-        vue_js = load_js("click_vue.js", subs)
-        r = chrome.evaluate(vue_js, await_promise=False)
-        raw = chrome.get_value(r)
-        if isinstance(raw, str):
-            try:
-                info = json.loads(raw or "{}")
-            except:
-                info = {}
-        else:
-            info = raw if raw is not None else {}
-        if isinstance(info, dict) and info.get("ok"):
-            if settle_s:
-                time.sleep(settle_s)
-            _dt("click_job", "vue_hit", {"index": info.get("index"), "total": info.get("total")})
-            return True, info.get("index", 0), info.get("total", 0)
-
-        _dt("click_job", "dom_try", {"sid": security_id[:30]})
-        dom_js = load_js("click_dom.js", subs)
-        r = chrome.evaluate(dom_js, await_promise=False)
-        raw = chrome.get_value(r)
-        if isinstance(raw, str):
-            info = json.loads(raw or "{}")
-        else:
-            info = raw if raw is not None else {}
-        if info.get("found"):
-            if settle_s:
-                time.sleep(settle_s)
-            _dt("click_job", "dom_hit", {"index": info.get("index"), "total": info.get("total")})
-            return True, info.get("index", 0), info.get("total", 0)
-
-        _dt("click_job", "not_found", {"sid": security_id[:30], "total": info.get("total", 0)})
-        return False, -1, info.get("total", 0)
-
-    def click_card_by_sid(self, chrome, security_id, job_name):
-        """兼容旧接口，按当前速度档位的点击等待委托给 click_job"""
-        return self.click_job(
-            chrome,
-            security_id,
-            scroll_wait_ms=self.profile["scroll_wait_ms"],
-            click_delay_ms=self.profile["click_delay_ms"],
-            settle_s=self.profile["click_settle_s"],
-        )
-
-    @staticmethod
     def get_scroll_position(chrome):
         """获取当前左侧列表的滚动位置（调试用）"""
         _dt("get_scroll_position", "call", {})
