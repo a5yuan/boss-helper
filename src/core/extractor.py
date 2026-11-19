@@ -137,4 +137,29 @@ class DetailPanelReader:
         }
 
 
+class CompanyOnlineReader:
+    """读取单张卡片的公司在线状态（仅本地 DOM / Vue，不发请求）。"""
+
+    @staticmethod
+    def read(chrome, security_id):
+        """返回探针 dict；任何异常都收敛成 evaluate_failed，不向上抛。"""
+        try:
+            # 转义方式与 src/utils/browser_behavior.py 的点击脚本一致
+            sid_e = security_id.replace("\\", "\\\\").replace("'", "\\'")
+            js = load_js("read_company_online.js", {"'__SID__'": f"'{sid_e}'"})
+            result = chrome.evaluate(js)
+            raw = chrome.get_value(result)
+            if isinstance(raw, str):
+                return json.loads(raw or "{}")
+            if not isinstance(raw, dict):
+                # 页面返回了无法解释的类型，转成异常走统一失败分支
+                raise TypeError(f"unexpected probe type: {type(raw).__name__}")
+            return raw
+        except Exception as exc:
+            return {
+                "ok": False,
+                "reason": f"evaluate_failed:{type(exc).__name__}",
+                "evidence": {},
+            }
+
 

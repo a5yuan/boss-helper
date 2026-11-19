@@ -24,8 +24,14 @@ def _trace_span(layer: str, fn: str, msg: str, scope: str = None):
 
 from src.config import get_config
 from src.core.browser import BrowserManager
-from src.core.extractor import VueExtractor, DetailPanelReader
+from src.core.extractor import VueExtractor, DetailPanelReader, CompanyOnlineReader
 from src.utils.browser_behavior import BrowserBehavior, resolve_speed
+from src.utils.company_online import (
+    STATE_OFFLINE,
+    STATE_UNKNOWN,
+    classify_online,
+    format_evidence,
+)
 from src.utils.salary import salary_in_range
 from src.storage.writer import OutputWriter
 from src.control import ConsoleController
@@ -707,6 +713,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     success_count = 0
     fail_count = 0
     skip_count = 0
+    offline_count = 0        # 公司不在线、主动跳过
+    online_unknown_count = 0 # 在线状态读不出、放行采集
     vue_hit = 0       # Vue 面板直读成功次数 (本地读取)
     start_idx = len(writer.all_jobs) + 1
     processed_sids = set()
@@ -715,6 +723,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     def _emit_progress():
         ctrl.progress(success_count, count, {
             "success": success_count, "fail": fail_count, "skip": skip_count,
+            "offline": offline_count, "online_unknown": online_unknown_count,
             "vue_hit": vue_hit,
         })
 
@@ -817,6 +826,35 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 _emit_progress()
                 continue
 
+            # === 公司在线状态门禁：离线不点击卡片、不读详情 ===
+            # 放在 processed_sids.add 之后，跳过的卡片本轮不会再被探测。
+            probe = CompanyOnlineReader.read(browser, sid)
+            online_state = classify_online(probe)
+            evidence = probe.get("evidence") if isinstance(probe.get("evidence"), dict) else {}
+            trace_data = {"sid": sid[:12], "brand": brand_name[:10]}
+            trace_data.update(evidence)
+
+            if online_state == STATE_OFFLINE:
+                offline_count += 1
+                ctrl.log(
+                    f"  [SKIP] 公司离线: {job_name[:20]} | {brand_name[:10]} | "
+                    f"{format_evidence(probe)}"
+                )
+                _dt("L5", "run_collection", "offline_skip", trace_data)
+                _emit_progress()
+                continue
+
+            if online_state == STATE_UNKNOWN:
+                online_unknown_count += 1
+                ctrl.log(
+                    f"  [.] 在线状态未知: {probe.get('reason', '?')} | "
+                    f"{format_evidence(probe)} | 照常采集"
+                )
+                _dt("L5", "run_collection", "online_unknown", trace_data)
+                _emit_progress()
+                # 未知不拦截，继续走正常采集
+            # online 不打日志、不计数
+
             # === 记录点击前滚动位置 ===
             scroll_before = behavior.get_scroll_position(browser)
             scroll_top_before = scroll_before.get("scrollTop", 0)
@@ -912,7 +950,11 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     if fail_count:
         ctrl.log(f"   失败:   {fail_count} 条")
     if skip_count:
-        ctrl.log(f"   跳过:   {skip_count} 条 (重复)")
+        ctrl.log(f"   跳过:   {skip_count} 条 (重复/薪资)")
+    if offline_count:
+        ctrl.log(f"   离线:   {offline_count} 条 (公司不在线)")
+    if online_unknown_count:
+        ctrl.log(f"   状态未知: {online_unknown_count} 条 (已放行)")
     ctrl.log(f"   -------")
     ctrl.log(f"   Vue面板直读(currentJob): {vue_hit} 次")
     ctrl.log(f"   JSON:   {writer.json_path}")
@@ -924,5 +966,6 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     browser.disconnect()
     ctrl.status("stopped" if stopped else "done", {
         "success": success_count, "fail": fail_count, "skip": skip_count,
+        "offline": offline_count, "online_unknown": online_unknown_count,
         "json": writer.json_path, "md": writer.md_path, "total": len(writer.all_jobs),
     })

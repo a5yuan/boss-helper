@@ -17,6 +17,7 @@
 - **薪资 `****` 或为空触发熔断**：暂停并等用户处理登录 / 刷新，不写入坏数据。
 - **关键词路线必须有 query**；关闭关键词搜索时 `query` 被清空，走手动路线。
 - **失败不静默**：读详情失败计入 `fail_count`，继续下一条；不因单条失败退出整轮。
+- **公司离线不采集**：点击卡片 / 读详情之前先读公司行 `a.boss-info`，公司不在线直接跳过；在线状态读不出时按未知放行，照常采集。
 - **速度档位只改本地等待**：`slow / normal / fast` 只影响点击后的延时、详情滚动和间隔休息，不改变读取方式、不增加任何请求。`speed` 显式传入时优先于 `safe_mode` / `fast`。
 
 ## 依赖方向
@@ -43,6 +44,8 @@ src.collector → server.tracer（仅函数内延迟 import）
 | `src/control.py` | Console / GUI 控制器（日志、进度、暂停、等待用户） |
 | `src/js/extract_list.js` | 从 Vue 组件树取 securityId 列表 |
 | `src/js/read_panel.js` | 从 `$data.currentJob` / `$data.jobDetail` 取详情 |
+| `src/js/read_company_online.js` | 按 `securityId` 定位卡片，读公司行与在线图标，返回探针 JSON |
+| `src/utils/company_online.py` | 探针三态归类 `online / offline / unknown` 与一行证据格式化 |
 
 ## 已知陷阱
 
@@ -52,6 +55,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 - **`auto_scroll_list` 故意不 await Promise**：滚动 JS 内部发异步 XHR，等 Promise 会在网络慢时卡住 CDP。
 - **查重口径是 title + company + 区域**：列表阶段用 `areaDistrict`，详情阶段从 `location`（「城市·区域」）取区域；两边都取不到区域时回退旧口径（视为重复）。详情拿到 `encryptJobId` 后还会精确查一次，防止跨文件重复。
 - **手动路线**：`keyword_search=False` 时不会自动导航，依赖用户先在浏览器里搜索 / 滚动。
+- **在线标记的 `<!---->`**：公司离线时 `.boss-logo` 里的在线图标渲染成 Vue 注释节点 `<!---->`，DOM 里根本没有 `.boss-online-icon`。因此"图标不存在 + `row_text_len > 0`"才是离线；`row_text_len == 0` 说明公司行还没渲染出来，一律归 `unknown` 放行，不当作离线。
 - **速度档位**：`slow` 沿用原安全模式节奏（Vue 滚动等待 600ms、DOM 点击延迟 300ms、点后 0.5s，平均约 4.7s/条，每 12 条休息 8~18s）；`normal` 450/200/0.3s，平均约 2.2s/条、每 25 条休息 4~8s；`fast` 250/100/0.1s，条间 0.3~0.8s、不滚动详情、不休息。改档位只改 `SPEED_PROFILES`，不要在 collector 里散落魔法数字。
 
 ## 测试方式

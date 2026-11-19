@@ -38,6 +38,8 @@ const metrics = [
   { k: "success", label: "成功", cls: "text-emerald-500" },
   { k: "fail", label: "失败", cls: "text-rose-500" },
   { k: "skip", label: "跳过", cls: "text-fg-muted" },
+  { k: "offline", label: "离线跳过", cls: "text-amber-500" },
+  { k: "online_unknown", label: "状态未知", cls: "text-fg-subtle" },
   { k: "vue_hit", label: "Vue直读", cls: "text-fg" },
 ];
 
