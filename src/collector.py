@@ -175,7 +175,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     keyword_mode = bool(query)
 
     # 动态获取配置
-    config = get_config(browser_type)
+    config = get_config(browser_type, platform=site)
 
     browser = BrowserManager(config=config)
     browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效

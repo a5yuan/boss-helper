@@ -89,6 +89,10 @@ else:
     CONFIG_PATH = os.path.join(PROJECT_DIR, "config.yaml")
 
 
+# 未显式指定平台时的默认值（registry.DEFAULT_SITE 从这里取，保持单一来源）
+DEFAULT_PLATFORM = "boss"
+
+
 def _default_output_dir():
     """开发模式及源码模式默认项目内 output/；打包模式默认可执行文件同级目录的 output/。"""
     if getattr(sys, "frozen", False):
@@ -108,39 +112,69 @@ def _read_yaml():
     return {}
 
 
-def load_config(browser_type="chrome"):
-    """加载 config.yaml，缺失项用默认值"""
+def load_config(browser_type="chrome", platform=None):
+    """加载 config.yaml，缺失项用默认值。
+
+    运行资源按 ``platform + browser_type`` 隔离。迁移期 BOSS 继续沿用
+    旧的 profile 与端口文件，避免已登录状态失效。
+    """
+    platform = (platform or DEFAULT_PLATFORM).strip() or DEFAULT_PLATFORM
     cfg = _read_yaml()
 
     # 根据浏览器类型决定默认值
     if browser_type == "edge":
         default_path = _find_edge()
-        profile_name = "edge_profile"
+        legacy_profile_name = "edge_profile"
     else:
         default_path = _find_chrome()
-        profile_name = "chrome_profile"
+        legacy_profile_name = "chrome_profile"
 
     browser_cfg = cfg.get(browser_type, cfg.get("chrome", {})) # 兼容旧版 chrome 配置项
     output_cfg = cfg.get("output", {})
 
-    output_dir = output_cfg.get("dir", "") or _default_output_dir()
+    base_output = output_cfg.get("dir", "") or _default_output_dir()
+    output_dir = os.path.join(base_output, platform)
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception:
         pass
 
     browser_path = browser_cfg.get("path", "") or default_path
+
+    # BOSS 的登录态在 profiles/<browser>_profile 里，必须继续认老目录
+    explicit_profile = browser_cfg.get("profile_dir", "")
+    if explicit_profile:
+        profile_dir = explicit_profile
+    elif platform == DEFAULT_PLATFORM:
+        profile_dir = os.path.join(PROJECT_DIR, "profiles", legacy_profile_name)
+    else:
+        profile_dir = os.path.join(PROJECT_DIR, "profiles", platform, browser_type)
+
+    port_file = os.path.join(PROJECT_DIR, f".cdp_port_{platform}_{browser_type}")
+    port_files = [port_file]
+    legacy_tracking = None
+    if platform == DEFAULT_PLATFORM:
+        port_files.append(os.path.join(PROJECT_DIR, f".cdp_port_{browser_type}"))
+        legacy_tracking = os.path.join(base_output, "tracking.json")
+
     _dt("load_config", "已加载配置", {
         "browser_type": browser_type,
+        "platform": platform,
         "config_path_val": browser_cfg.get("path", ""),
         "resolved_path": browser_path
     })
 
     return {
         "browser_path": browser_path,
-        "profile_dir": browser_cfg.get("profile_dir", "") or os.path.join(PROJECT_DIR, "profiles", profile_name),
+        "platform": platform,
+        "profile_dir": profile_dir,
         "output_dir": output_dir,
-        "port_file": os.path.join(PROJECT_DIR, f".cdp_port_{browser_type}"),
+        "tracking_file": os.path.join(output_dir, "tracking.json"),
+        "legacy_tracking_file": legacy_tracking,
+        "port_file": port_file,
+        "port_files": port_files,
+        # 二级平台禁止扫 9222-9229，避免接到别的浏览器
+        "allow_port_scan": platform == DEFAULT_PLATFORM,
         "humanize": cfg.get("humanize", {}),
     }
 
@@ -183,6 +217,7 @@ def load_start_params() -> dict:
     defaults = {
         "count": 20,
         "browser_type": "chrome",
+        "site": DEFAULT_PLATFORM,
         "safe_mode": True,
         "fast": False,
         "speed": "slow",
@@ -220,7 +255,7 @@ def save_start_params(params: dict) -> bool:
     cfg = _read_yaml()
     # 只写已知字段，避免污染
     allowed = {
-        "count", "browser_type", "safe_mode", "fast", "speed", "new_chrome",
+        "count", "browser_type", "site", "safe_mode", "fast", "speed", "new_chrome",
         "tag", "keyword_search", "query", "city_code", "city_name",
         "salary_min", "salary_max", "tag_sync", "onboarding_completed",
         "job_type", "degrees", "experience", "salary_fuzzy",
@@ -236,8 +271,8 @@ def save_start_params(params: dict) -> bool:
 
 
 # 提供一个便捷函数来获取配置，而不是直接导出静态 CONFIG
-def get_config(browser_type="chrome"):
-    return load_config(browser_type)
+def get_config(browser_type="chrome", platform=None):
+    return load_config(browser_type, platform=platform)
 
 # 默认导出 chrome 配置以保持向后兼容
 CONFIG = get_config("chrome")

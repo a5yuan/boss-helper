@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 复核队列定位后自动点击「立即沟通」打开聊天窗（`/api/focus` 新增 `open_chat`，默认开启；只点按钮、不发送消息）
 - 假平台契约测试（`tests/test_fake_platform.py`）：零网络适配器跑通完整采集，并用 token 扫描拦住平台知识回流 `collector.py`
 - 平台适配器自动发现：`create_adapter("<site>")` 按约定 import `src.adapters.<site>`，平台导入时自注册；新增平台不再需要改任何公共文件
+- 运行资源按平台隔离：profile / 端口文件 / 输出目录 / tracking 都带 `platform` 维度；新增 `src/runtime.py` 持有每平台的 Tracker
+- BOSS 迁移兼容：继续使用 `profiles/{browser}_profile` 与 `.cdp_port_{browser}`，首次读取时把旧 `output/tracking.json` 复制到 `output/boss/tracking.json`
 
 ### Changed
 
@@ -36,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 采集统计新增 `offline` / `online_unknown`：进度面板显示「离线跳过」「状态未知」，总结里「跳过」改为「(重复/薪资)」并单列离线与未知条数
 - `/api/focus` 返回新增 `chat` 字段，报告沟通按钮是否点到；`Enter` 按钮文案改为「定位并沟通」
 - `config.yaml` 的 `start_params` 新增 `speed`；旧配置按 `fast` / `safe_mode` 自动推导，不会强制改回慢速
+- 采集输出目录改为 `output/{platform}/`（BOSS 为 `output/boss/`）；历史文件仍留在 `output/`，但新采集与复习队列只看新目录
+- `config.yaml` 的 `start_params` 新增 `site`（默认 `boss`）
 
 ---
 

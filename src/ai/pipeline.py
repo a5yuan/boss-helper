@@ -10,7 +10,7 @@ from datetime import datetime
 from src.ai.client import LLMClient
 from src.ai.resume import ResumeLibrary, load_resume
 from src.ai.screen import screen_jobs
-from src.config import get_config, load_ai_config
+from src.config import load_ai_config
 
 
 class PlanError(Exception):
@@ -28,8 +28,8 @@ def load_jobs(path: str) -> list:
 
 
 def plan_path_for(source_path: str) -> str:
-    """jobs_2026-11-17_RAG_杭州.json → output/ai_plan_2026-11-17_RAG_杭州.json"""
-    out_dir = get_config("chrome")["output_dir"]
+    """jobs_2026-11-17_RAG_杭州.json → 同目录的 ai_plan_2026-11-17_RAG_杭州.json"""
+    out_dir = os.path.dirname(os.path.abspath(source_path))
     name = os.path.basename(source_path)
     stem = name[len("jobs_"):] if name.startswith("jobs_") else name
     if stem.endswith(".json"):

@@ -11,6 +11,7 @@
 ## 不变量
 
 - **0 目标请求**：除用户可见的 `location.href` 导航外，不向目标平台域名发请求。
+- **运行资源按 `platform + browser_type` 隔离**：profile 在 `profiles/{platform}/{browser_type}`，端口文件 `.cdp_port_{platform}_{browser_type}`，输出与 tracking 在 `output/{platform}/`。BOSS 兼容旧 profile（`profiles/{browser}_profile`）和旧端口文件，避免登录态失效。
 - **一次运行一个 `BrowserManager` + 一个 `OutputWriter`**；writer 在内存里按 `(title, company)` 查重。
 - **`securityId` 只在当前页面会话有效**；`processed_sids` 只用于本轮去重，不能持久化。
 - **停止 / 暂停在循环边界检查**；任何长等待必须走 `_interruptible_sleep`。

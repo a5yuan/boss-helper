@@ -6,8 +6,10 @@
 import importlib
 from typing import Any, Callable
 
+from src.config import DEFAULT_PLATFORM
+
 # 未显式指定 site 时使用的平台
-DEFAULT_SITE = "boss"
+DEFAULT_SITE = DEFAULT_PLATFORM
 
 _FACTORIES: dict[str, Callable[..., Any]] = {}
 

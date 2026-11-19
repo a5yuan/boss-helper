@@ -8,6 +8,7 @@
 """
 import json
 import os
+import shutil
 import threading
 from datetime import datetime
 
@@ -20,18 +21,32 @@ def track_key(security_id: str, encrypt_job_id: str) -> str:
 
 
 class Tracker:
-    def __init__(self, path: str | None = None):
+    def __init__(self, path: str | None = None, legacy_path: str | None = None):
         self._path = path
+        self._legacy_path = legacy_path
         self._lock = threading.Lock()
+        self._migrate_legacy()
 
     @property
     def path(self) -> str:
         if self._path:
             return self._path
         # 延迟导入，避免与 config 的模块级初始化互相牵扯
-        from src.config import get_config
-        out = get_config("chrome")["output_dir"]
+        from src.config import DEFAULT_PLATFORM, get_config
+        out = get_config("chrome", platform=DEFAULT_PLATFORM)["output_dir"]
         return os.path.join(out, "tracking.json")
+
+    def _migrate_legacy(self) -> None:
+        """新路径还没数据时，从老 tracking 复制一份，别让已联系记录消失。"""
+        if not self._legacy_path:
+            return
+        try:
+            if os.path.exists(self.path) or not os.path.exists(self._legacy_path):
+                return
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            shutil.copy2(self._legacy_path, self.path)
+        except OSError:
+            pass
 
     def _load(self) -> dict:
         try:
@@ -68,6 +83,3 @@ class Tracker:
             data[sid] = rec
             self._save(data)
             return rec
-
-
-tracker = Tracker()

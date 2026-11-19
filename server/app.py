@@ -34,6 +34,7 @@ app.add_middleware(
 class StartParams(BaseModel):
     count: int = 20
     browser_type: str = "chrome"
+    site: str = "boss"
     new_chrome: bool = False
     tag: str | None = None
     # 以下字段保留但不再由前端发起（默认关闭关键词路线）
@@ -318,7 +319,8 @@ def api_debug_panel():
 
 # ── 复核队列：状态跟踪 + 浏览器定位 + 招呼语填充 ────────────────────────────
 
-from src.tracking import tracker, track_key  # noqa: E402
+from src.runtime import get_runtime  # noqa: E402
+from src.tracking import track_key  # noqa: E402
 
 
 class TrackBody(BaseModel):
@@ -410,7 +412,7 @@ def _with_browser(fn, prefer_chat: bool = False):
 
 @app.get("/api/tracking")
 def api_tracking():
-    return tracker.all()
+    return get_runtime().tracker.all()
 
 
 @app.post("/api/tracking")
@@ -419,7 +421,7 @@ def api_tracking_set(body: TrackBody):
     if not key:
         return {"ok": False, "error": "缺少岗位 ID"}
     try:
-        return {"ok": True, "record": tracker.set(key, body.status, body.note)}
+        return {"ok": True, "record": get_runtime().tracker.set(key, body.status, body.note)}
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
 

@@ -63,5 +63,37 @@ class TestTracker(unittest.TestCase):
         self.assertIsInstance(self.tracker.all(), dict)
 
 
+class TestLegacyMigration(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.legacy = os.path.join(self.tmp.name, "tracking.json")
+        self.new = os.path.join(self.tmp.name, "boss", "tracking.json")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, path, data):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+    def test_copies_legacy_when_new_missing(self):
+        self._write(self.legacy, {"eid-1": {"status": "applied"}})
+        tracker = Tracker(path=self.new, legacy_path=self.legacy)
+        self.assertEqual(tracker.get("eid-1")["status"], "applied")
+        self.assertTrue(os.path.exists(self.legacy))
+
+    def test_does_not_overwrite_existing(self):
+        self._write(self.legacy, {"old": {"status": "applied"}})
+        self._write(self.new, {"new": {"status": "shortlisted"}})
+        tracker = Tracker(path=self.new, legacy_path=self.legacy)
+        self.assertEqual(tracker.get("new")["status"], "shortlisted")
+        self.assertEqual(tracker.get("old"), {})
+
+    def test_missing_legacy_is_noop(self):
+        tracker = Tracker(path=self.new, legacy_path=self.legacy)
+        self.assertEqual(tracker.all(), {})
+
+
 if __name__ == "__main__":
     unittest.main()
