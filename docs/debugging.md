@@ -49,7 +49,7 @@ python main.py --new -b chrome -n 20
 - 端口文件：`.cdp_port_chrome` / `.cdp_port_edge`。
 - 端口扫描范围：9222–9229（`try_connect_existing`）。
 - 标签页列表：`curl http://127.0.0.1:<port>/json`。
-- 常见坑：导航 / 登录后 `webSocketDebuggerUrl` 会变，必须重新 `find_boss_page()`；`shared_worker` 的 URL 也可能含 `geek-chat`，但它不是页面。
+- 常见坑：导航 / 登录后 `webSocketDebuggerUrl` 会变，必须重新 `find_target_page()`；`shared_worker` 的 URL 也可能含 `geek-chat`，但它不是页面。
 
 ## 常见故障
 
@@ -57,7 +57,7 @@ python main.py --new -b chrome -n 20
 |---|---|---|
 | 启动即退出 | GUI 模式无控制台，stdout 是 NULL | 看 `startup.log` |
 | WebSocket 连接超时 | 浏览器已关 / 端口失效 | 重新采集或 `--new` |
-| 日志停在「导航至…」 | 页面跳转销毁了 CDP target | 确认登录；靠 `_reconnect_boss` 重连 |
+| 日志停在「导航至…」 | 页面跳转销毁了 CDP target | 确认登录；靠 `_reconnect_page` 重连 |
 | 薪资显示 `****` | 登录过期 / 页面未加载完 | 熔断分支：手动刷新页面后继续 |
 | 复核定位失败 | 浏览器没在跑 / 采集任务占用 | 先跑一次采集，或停止任务 |
 | 8848 被占 | 上次进程未退出 | `python run_gui.py --stop`，或 `--port` |

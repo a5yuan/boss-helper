@@ -386,13 +386,13 @@ def _with_browser(fn, prefer_chat: bool = False):
     if not bm.try_connect_existing():
         return {"ok": False, "error": "没有正在运行的调试浏览器，请先跑一次采集"}
     # 只考虑真正的标签页；shared_worker 的 URL 里也含 geek-chat，不能选它
-    pages = [p for p in bm.find_boss_pages() if p.get("type") == "page"]
+    pages = [p for p in bm.find_target_pages() if p.get("type") == "page"]
     page = None
     if prefer_chat:
         chat = [p for p in pages if "chat" in p.get("url", "")]
         page = chat[-1] if chat else None
     if page is None:
-        best = bm.find_boss_page()
+        best = bm.find_target_page()
         page = best if (best and best.get("type") == "page") else (pages[0] if pages else None)
     if not page:
         return {"ok": False, "error": "没有找到 BOSS 标签页"}

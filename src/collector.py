@@ -22,7 +22,7 @@ def _trace_span(layer: str, fn: str, msg: str, scope: str = None):
 
 
 from src.adapters.base import SearchCriteria
-from src.adapters.boss import BossAdapter
+from src.adapters.registry import create_adapter
 from src.config import get_config
 from src.core.browser import BrowserManager
 from src.utils.browser_behavior import BrowserBehavior, resolve_speed
@@ -92,20 +92,20 @@ def _current_url(browser):
         return ""
 
 
-def _reconnect_boss(browser, adapter, ctrl):
-    """重新定位活跃的 BOSS 标签页并重连 CDP。
+def _reconnect_page(browser, adapter, ctrl):
+    """重新定位活跃的目标标签页并重连 CDP。
 
     登录/验证后浏览器常切换或新开标签页，原 CDP 目标会失效，导致后续
     导航/取数"无反应"。每次人工介入后都重连，连到真正在用的那个页面。
     返回 True 表示已连上可用页面。
     """
-    page = adapter.pick_target(browser.find_boss_pages())
+    page = adapter.pick_target(browser.find_target_pages())
     if not page:
-        _dt("H1", "_reconnect_boss", "no_boss_page")
+        _dt("H1", "_reconnect_page", "no_target_page")
         return False
     ws_url = page.get("webSocketDebuggerUrl", "")
     if not ws_url:
-        _dt("H1", "_reconnect_boss", "no_ws_url")
+        _dt("H1", "_reconnect_page", "no_ws_url")
         return False
     try:
         browser.disconnect()
@@ -113,13 +113,13 @@ def _reconnect_boss(browser, adapter, ctrl):
         pass
     try:
         if not browser.connect_ws(ws_url):
-            _dt("H1", "_reconnect_boss", "connect_ws_failed", {"ws_url": ws_url[:50]})
+            _dt("H1", "_reconnect_page", "connect_ws_failed", {"ws_url": ws_url[:50]})
             return False
     except Exception as exc:
         ctrl.log(f"    [!] 重连页面失败: {exc}")
-        _dt("H1", "_reconnect_boss", "connect_ws_exception", {"exc": str(exc)})
+        _dt("H1", "_reconnect_page", "connect_ws_exception", {"exc": str(exc)})
         return False
-    _dt("H1", "_reconnect_boss", "connected", {"ws_url": ws_url[:50], "page_url": page.get('url','')[:60]})
+    _dt("H1", "_reconnect_page", "connected", {"ws_url": ws_url[:50], "page_url": page.get('url','')[:60]})
     return True
 
 
@@ -162,7 +162,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                    keyword_search=True, query="", city_code=None, city_name=None,
                    salary_min=None, salary_max=None, tag_sync=False,
                    job_type="", degrees=None, experience=None, salary_fuzzy=False,
-                   speed=None):
+                   speed=None, site=None):
     ctrl = controller or ConsoleController()
 
     # speed 显式传入时优先；旧的 fast / safe_mode 参数继续兼容
@@ -177,9 +177,14 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     # 动态获取配置
     config = get_config(browser_type)
 
+    browser = BrowserManager(config=config)
+    browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效
+    behavior = BrowserBehavior(speed)
+    adapter = create_adapter(site, browser, behavior.profile)
+
     ctrl.status("running")
     ctrl.log("=" * 60)
-    ctrl.log(f"BOSS 直聘 V14 助手引擎 ({browser_type.capitalize()} 驱动)")
+    ctrl.log(f"{adapter.display_name} V14 助手引擎 ({browser_type.capitalize()} 驱动)")
     speed_label = {"slow": "慢速", "normal": "中速", "fast": "快速"}[speed]
     ctrl.log(f"   目标: {count} 条 | 速度: {speed_label}")
     ctrl.log("=" * 60)
@@ -191,11 +196,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     out_tag = _append_location_tag(base_tag, city_name, salary_min, salary_max)
     ctrl.log(f"   输出前缀: {out_tag or '(default)'}")
 
-    browser = BrowserManager(config=config)
-    browser.should_stop = ctrl.should_stop  # send_cdp 里每 2s 检查一次，让 Ctrl+C 有机会生效
     writer = OutputWriter(config["output_dir"], tag=out_tag)
-    behavior = BrowserBehavior(speed)
-    adapter = BossAdapter(browser, click_timing=behavior.profile)
 
     criteria = SearchCriteria(
         query=query,
@@ -220,62 +221,62 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
     if not connected:
         ctrl.log(f"   [-] 未找到已有 {browser_type.capitalize()}，启动新实例 ...")
-        if not browser.launch("https://www.zhipin.com/web/geek/job"):
+        if not browser.launch(adapter.home_url()):
             ctrl.log(f"[-] {browser_type.capitalize()} 启动失败")
             ctrl.status("error", "browser launch failed")
             return
         ctrl.log(f"   [+] 新 {browser_type.capitalize()} 就绪")
 
-    # ===== 检查是否已有 BOSS 页面 =====
-    boss_page = adapter.pick_target(browser.find_boss_pages())
+    # ===== 检查是否已有目标平台页面 =====
+    target_page = adapter.pick_target(browser.find_target_pages())
 
     if keyword_mode:
         # ---- 关键词路线：不做"直接分析该页面"确认，稍后自动导航搜索页 ----
-        if boss_page:
-            ctrl.log(f"\n   [+] 发现 BOSS 页面: {boss_page['url'][:60]}（将自动按关键词搜索）")
+        if target_page:
+            ctrl.log(f"\n   [+] 发现目标页面: {target_page['url'][:60]}（将自动按关键词搜索）")
         else:
-            # 少见：浏览器已起但还没有 zhipin 标签页，提示打开并登录
+            # 少见：浏览器已起但还没有目标平台标签页，提示打开并登录
             ctrl.wait_user(
-                "请在浏览器中打开并登录 BOSS 直聘（https://www.zhipin.com），"
+                f"请在浏览器中打开并登录 {adapter.display_name}（{adapter.home_url()}），"
                 "完成后点「我已完成，继续」。",
                 kind="login",
             )
-            boss_page = adapter.pick_target(browser.find_boss_pages())
-            if not boss_page:
-                ctrl.log("[-] 未找到 zhipin.com 页面")
-                ctrl.status("error", "no zhipin page")
+            target_page = adapter.pick_target(browser.find_target_pages())
+            if not target_page:
+                ctrl.log("[-] 未找到目标平台页面")
+                ctrl.status("error", "no target page")
                 return
     else:
         # ---- 手动路线（CLI 类交互）：用户自行搜索/滚动后再分析当前页面 ----
-        if boss_page:
-            ctrl.log(f"\n   [+] 发现 BOSS 页面: {boss_page['url'][:60]}")
+        if target_page:
+            ctrl.log(f"\n   [+] 发现目标页面: {target_page['url'][:60]}")
             user_input = ctrl.wait_user(
                 "   直接分析该页面? [回车=是 / 输入 wait 手动操作后再分析]: ",
                 kind="page_confirm",
             ).strip()
             if user_input.lower() == "wait":
-                boss_page = None
+                target_page = None
 
-        if not boss_page:
+        if not target_page:
             ctrl.log("\n" + "=" * 60)
             ctrl.log("[*] 请在浏览器中操作:")
-            ctrl.log("    1. 登录 BOSS 直聘: https://www.zhipin.com/web/geek/job")
+            ctrl.log(f"    1. 登录 {adapter.display_name}: {adapter.home_url()}")
             ctrl.log("    2. 搜索你想要的岗位关键词")
             ctrl.log("    3. 尽量往下滚动，加载更多岗位")
             ctrl.log("    4. 回到终端按回车")
             ctrl.log("=" * 60)
             ctrl.wait_user("\n[等待中...按回车开始分析]: ", kind="confirm")
 
-            boss_page = adapter.pick_target(browser.find_boss_pages())
-            if not boss_page:
-                ctrl.log("[-] 未找到 zhipin.com 页面")
-                ctrl.status("error", "no zhipin page")
+            target_page = adapter.pick_target(browser.find_target_pages())
+            if not target_page:
+                ctrl.log("[-] 未找到目标平台页面")
+                ctrl.status("error", "no target page")
                 return
 
     # ===== Step 2: 连接 WebSocket =====
     ctrl.log("\n[Step 2] 连接 WebSocket ...")
-    ws_url = boss_page.get("webSocketDebuggerUrl", "")
-    ctrl.log(f"   页面: {boss_page['url'][:60]}")
+    ws_url = target_page.get("webSocketDebuggerUrl", "")
+    ctrl.log(f"   页面: {target_page['url'][:60]}")
 
     if not browser.connect_ws(ws_url):
         ctrl.log("[-] WebSocket 连接失败")
@@ -292,10 +293,10 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         @_trace_span("BE-INTERNAL", "collector.py:_ensure_logged_in", "检测与确认登录状态", scope="collect-start")
         def _ensure_logged_in():
             """检测登录态，未登录则循环等待用户扫码登录，直到确认已登录才返回。"""
-            # ── L3: 先强制导航到 BOSS，确保在正确域内再 probe ───────────
-            _dt("L3", "_ensure_logged_in", "pre_nav_to_boss")
+            # ── L3: 先强制导航到平台首页，确保在正确域内再 probe ───────────
+            _dt("L3", "_ensure_logged_in", "pre_nav_home")
             try:
-                browser.evaluate("location.href='https://www.zhipin.com/web/geek/job'")
+                browser.evaluate("location.href=" + json.dumps(adapter.home_url()))
                 _dt("L3", "_ensure_logged_in", "pre_nav_ok")
             except Exception as exc:
                 _dt("L3", "_ensure_logged_in", "pre_nav_exc", {"exc": str(exc)})
@@ -320,7 +321,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
             # 未登录或未知 → 进入扫码登录循环
             _dt("L2", "_ensure_logged_in", "need_login", {"probe_state": state})
-            ctrl.log("   [!] 检测到尚未登录 BOSS（或登录态无法确认）")
+            ctrl.log(f"   [!] 检测到尚未登录 {adapter.display_name}（或登录态无法确认）")
 
             while True:
                 if ctrl.should_stop():
@@ -330,13 +331,13 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 # ── L2a: 主动导航到登录入口页（确保浏览器在正确的扫码页面）────
                 _dt("L3", "_ensure_logged_in", "nav_to_login_page")
                 try:
-                    browser.evaluate("location.href='https://www.zhipin.com/web/user/?ka=header-login'")
+                    browser.evaluate("location.href=" + json.dumps(adapter.login_url()))
                     _dt("L3", "_ensure_logged_in", "nav_to_login_page_ok")
                 except Exception as exc:
                     _dt("L3", "_ensure_logged_in", "nav_to_login_page_exc", {"exc": str(exc)})
                 time.sleep(1.5)
 
-                ctrl.log("   [*] 请在浏览器中扫码登录 BOSS 直聘")
+                ctrl.log(f"   [*] 请在浏览器中扫码登录 {adapter.display_name}")
                 ctrl.log("   [*] 扫码后在 APP 确认，完成后点「我已完成，继续」")
 
                 # 等待用户在 app 确认（GUI）或按回车（CLI）
@@ -352,18 +353,18 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                 # ── L1: 登录后标签页/CDP 目标可能已切换，先重连 ──────────────
                 _dt("L1", "_ensure_logged_in", "reconnect_after_scan")
-                if not _reconnect_boss(browser, adapter, ctrl):
-                    ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
+                if not _reconnect_page(browser, adapter, ctrl):
+                    ctrl.log("   [!] 未找到可用的目标标签页，请确认浏览器未被关闭")
                     _dt("L1", "_ensure_logged_in", "reconnect_failed")
                     continue
 
                 # ── L2b: 强制刷新页面后再检测（避免旧 DOM 导致 probe 误判）────
                 _dt("L3", "_ensure_logged_in", "reload_before_probe")
-                try:
-                    browser.evaluate("location.reload()")
+                reloaded = adapter.reload()
+                if reloaded.get("ok"):
                     _dt("L3", "_ensure_logged_in", "reload_ok")
-                except Exception as exc:
-                    _dt("L3", "_ensure_logged_in", "reload_exc", {"exc": str(exc)})
+                else:
+                    _dt("L3", "_ensure_logged_in", "reload_exc", {"exc": reloaded.get("reason")})
                 time.sleep(2.0)
 
                 probe = adapter.probe_login()
@@ -453,7 +454,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                     # ── L3a: 主动导航到登录入口页 ──────────────────────────────
                     _dt("L3", "run_collection", "login_loop_nav_to_login")
                     try:
-                        browser.evaluate("location.href='https://www.zhipin.com/web/user/?ka=header-login'")
+                        browser.evaluate("location.href=" + json.dumps(adapter.login_url()))
                         _dt("L3", "run_collection", "login_loop_nav_ok")
                     except Exception as exc:
                         _dt("L3", "run_collection", "login_loop_nav_exc", {"exc": str(exc)})
@@ -471,17 +472,17 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                     # ── L1: 重连 ─────────────────────────────────────────────
                     _dt("L1", "run_collection", "reconnect_before_reprobe")
-                    if not _reconnect_boss(browser, adapter, ctrl):
-                        ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
+                    if not _reconnect_page(browser, adapter, ctrl):
+                        ctrl.log("   [!] 未找到可用的目标标签页，请确认浏览器未被关闭")
                         continue
 
                     # ── L3b: 强制刷新后再 probe ───────────────────────────────
                     _dt("L3", "run_collection", "login_loop_reload_before_probe")
-                    try:
-                        browser.evaluate("location.reload()")
+                    reloaded = adapter.reload()
+                    if reloaded.get("ok"):
                         _dt("L3", "run_collection", "login_loop_reload_ok")
-                    except Exception as exc:
-                        _dt("L3", "run_collection", "login_loop_reload_exc", {"exc": str(exc)})
+                    else:
+                        _dt("L3", "run_collection", "login_loop_reload_exc", {"exc": reloaded.get("reason")})
                     time.sleep(2.0)
 
                     probe = adapter.probe_login()
@@ -508,8 +509,8 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                     kind="page_confirm",
                 )
                 _dt("L1", "run_collection", "reconnect_after_timeout_wait")
-                if not _reconnect_boss(browser, adapter, ctrl):
-                    ctrl.log("   [!] 未找到可用的 BOSS 标签页，请确认浏览器未被关闭")
+                if not _reconnect_page(browser, adapter, ctrl):
+                    ctrl.log("   [!] 未找到可用的目标标签页，请确认浏览器未被关闭")
                 nav_status = _goto_search(browser, adapter, criteria, ctrl)
                 _dt("L3", "run_collection", "relayout_after_timeout", {"status": nav_status.get("state")})
 
@@ -563,7 +564,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         jobs = adapter.list_jobs().get("jobs") or []
         if not jobs:
             ctrl.log("   [*] 页面上未探测到岗位，尝试向下滚动加载 ...")
-            behavior.auto_scroll_list(browser)
+            adapter.scroll_list()
             _interruptible_sleep(ctrl, 2)
             # 再次检查
             jobs = adapter.list_jobs().get("jobs") or []
@@ -590,7 +591,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 if keyword_mode and not ctrl.should_stop():
                     # 关键词路线：继续时重连活跃页面 + 按关键词重新导航，避免读到无关页面
                     _dt("H4", "run_collection", "empty_jobs_reconnect")
-                    _reconnect_boss(browser, adapter, ctrl)
+                    _reconnect_page(browser, adapter, ctrl)
                     _goto_search(browser, adapter, criteria, ctrl)
                 continue
 
@@ -668,10 +669,10 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             # online 不打日志、不计数
 
             # === 记录点击前滚动位置 ===
-            scroll_before = behavior.get_scroll_position(browser)
+            scroll_before = adapter.scroll_position()
             scroll_top_before = scroll_before.get("scrollTop", 0)
 
-            # === 通过 securityId 精确点击卡片 (不再用名字匹配) ===
+            # === 通过岗位 ID 精确点击卡片 (不再用名字匹配) ===
             click = adapter.click_card(sid)
             clicked, card_pos, card_total = click["ok"], click["index"], click["total"]
 
@@ -682,7 +683,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 continue
 
             # === 检测回跳 ===
-            scroll_after = behavior.get_scroll_position(browser)
+            scroll_after = adapter.scroll_position()
             scroll_top_after = scroll_after.get("scrollTop", 0)
 
             # 位置信息
@@ -718,7 +719,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
                 # === 数据读取后的延时等待（按速度档位，可被中止）===
                 if behavior.should_scroll_detail():
-                    behavior.scroll_detail(browser)
+                    adapter.scroll_detail()
                 _interruptible_sleep(ctrl, behavior.get_browse_delay())
 
                 title = detail.get("title", "?")[:25]
@@ -751,7 +752,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         if success_count == prev_success_count and not ctrl.should_stop():
             _dt("H4", "run_collection", "scroll_for_more_start", {"success": success_count, "prev": prev_success_count})
             ctrl.log(f"   [*] 本批已处理完，滚动加载更多 ...")
-            behavior.auto_scroll_list(browser)
+            adapter.scroll_list()
             _interruptible_sleep(ctrl, 2)
             _dt("H4", "run_collection", "scroll_for_more_done", {})
 

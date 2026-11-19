@@ -1,14 +1,5 @@
 import time
 import random
-import json
-
-from src.core.js_loader import load_js
-
-
-def _dt(fn: str, msg: str, data: dict | None = None):
-    """写入 tracer（延迟导入避免循环依赖）。"""
-    from server.tracer import tracer
-    tracer.internal(f"browser_behavior.py:{fn}", msg, data or {})
 
 
 VALID_SPEEDS = ("slow", "normal", "fast")
@@ -93,48 +84,4 @@ class BrowserBehavior:
         else:
             time.sleep(idle)
         return True
-
-    @staticmethod
-    def get_scroll_position(chrome):
-        """获取当前左侧列表的滚动位置（调试用）"""
-        _dt("get_scroll_position", "call", {})
-        try:
-            result = chrome.evaluate(load_js("scroll_position.js"))
-            raw = chrome.get_value(result)
-            if isinstance(raw, str):
-                data = json.loads(raw or "{}")
-            else:
-                data = raw if raw is not None else {}
-            _dt("get_scroll_position", "ok", data)
-            return data
-        except Exception as exc:
-            _dt("get_scroll_position", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
-            raise
-
-    @staticmethod
-    def scroll_detail(chrome):
-        """滚动浏览右侧详情面板"""
-        _dt("scroll_detail", "call", {})
-        try:
-            chrome.evaluate(load_js("scroll_detail.js"))
-            _dt("scroll_detail", "ok", {})
-        except Exception as exc:
-            _dt("scroll_detail", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
-            raise
-
-    @staticmethod
-    def auto_scroll_list(chrome):
-        """列表为空时触发懒加载：向下滚动一段距离，激活 BOSS 原生无限滚动加载"""
-        _dt("auto_scroll_list", "start", {})
-        try:
-            # 不用 await_promise=True：滚动 JS 里 async 触发 XHR 懒加载，
-            # CDP 若等 Promise resolve，网络慢时会直接断开连接导致误判。
-            # 这里只关心是否抛异常，不关心返回值。
-            result = chrome.evaluate(load_js("scroll_list.js"), await_promise=False)
-            raw = chrome.get_value(result)
-            _dt("auto_scroll_list", "ok", {"raw": str(raw)[:100]})
-        except Exception as exc:
-            _dt("auto_scroll_list", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
-            raise
-        time.sleep(0.5)
 

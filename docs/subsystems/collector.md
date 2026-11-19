@@ -10,7 +10,7 @@
 
 ## 不变量
 
-- **0 目标请求**：除用户可见的 `location.href` 导航外，不向 zhipin.com 发请求。
+- **0 目标请求**：除用户可见的 `location.href` 导航外，不向目标平台域名发请求。
 - **一次运行一个 `BrowserManager` + 一个 `OutputWriter`**；writer 在内存里按 `(title, company)` 查重。
 - **`securityId` 只在当前页面会话有效**；`processed_sids` 只用于本轮去重，不能持久化。
 - **停止 / 暂停在循环边界检查**；任何长等待必须走 `_interruptible_sleep`。
@@ -24,14 +24,16 @@
 
 ```
 main.py / server.session → src.collector
-src.collector → src.adapters.base, src.adapters.boss,
+src.collector → src.adapters.base, src.adapters.registry,
                 src.core.browser, src.utils.browser_behavior,
                 src.utils.salary, src.storage.writer, src.control, src.config
+src.adapters.registry → src.adapters.boss（仅默认站点延迟 import）
 src.adapters.boss → src.core.js_loader, src.utils.chat_input, src.core.browser（仅异常类型）
 src.collector → server.tracer（仅函数内延迟 import）
 ```
 
 不允许 `src.core.*` 反向 import `collector`；平台相关页面操作只能放在适配器里。
+`src.collector` 不 import 任何具体平台类，只通过 `site` 字符串向 registry 要适配器。
 
 ## 关键文件
 
@@ -39,8 +41,9 @@ src.collector → server.tracer（仅函数内延迟 import）
 |---|---|
 | `src/collector.py` | 主流程、登录等待、导航、循环、熔断、进度；平台策略只做调度 |
 | `src/adapters/base.py` | `PlatformAdapter` 契约、页面门面、结果形状 |
-| `src/adapters/boss.py` | BOSS 页面操作：选页 / 登录探针 / 检索 URL / 列表 / 在线 / 点击 / 详情 / 聊天 / 招呼语 |
-| `src/utils/browser_behavior.py` | 滚动、随机浏览间隔、`SPEED_PROFILES` 速度档位（点击在适配器） |
+| `src/adapters/registry.py` | `site` → 适配器工厂；新增平台只注册，不改引擎 |
+| `src/adapters/boss.py` | BOSS 页面操作：选页 / 登录探针 / 检索 URL / 列表 / 在线 / 点击 / 滚动 / 详情 / 聊天 / 招呼语 |
+| `src/utils/browser_behavior.py` | 随机浏览间隔、`SPEED_PROFILES` 速度档位（滚动与点击都在适配器） |
 | `src/utils/salary.py` | 薪资解析与区间匹配 |
 | `src/storage/writer.py` | `jobs_YYYY-MM-DD[_tag].json/.md` 增量写 + 内存查重 |
 | `src/control.py` | Console / GUI 控制器（日志、进度、暂停、等待用户） |
@@ -49,12 +52,37 @@ src.collector → server.tracer（仅函数内延迟 import）
 | `src/js/read_company_online.js` | 按 `securityId` 定位卡片，读公司行与在线图标，返回探针 JSON |
 | `src/utils/company_online.py` | 探针三态归类 `online / offline / unknown` 与一行证据格式化 |
 
+## 平台契约（`PlatformAdapter`）
+
+引擎只通过下面这组方法接触页面。适配器构造时注入一个 `Page` 门面
+（`evaluate / get_value / bring_to_front / native_click / send_cdp`），
+不得碰端口、进程、标签页发现或文件。所有方法返回带 `ok` 的字典，
+不得向上抛异常；`StopError` 例外，必须继续冒泡。
+
+| 分组 | 方法 | 返回 | 谁负责 |
+|---|---|---|---|
+| 身份 | `site` / `display_name` | 字符串 | 适配器 |
+| 选页 | `pick_target(targets)` | `Tab \| None` | 适配器打分；传输层 `find_target_pages` 先按平台域名过滤 |
+| 站点入口 | `home_url()` / `login_url()` / `reload()` | URL / `{ok, reason}` | 适配器 |
+| 滚动 | `scroll_list()` / `scroll_detail()` / `scroll_position()` | `{ok}` / `{ok}` / `{scrollTop}` | 适配器执行，引擎决定何时调用 |
+| 登录 | `probe_login()` | `{state, source}`，`state` 为 `in/login/unknown` | 适配器探测，引擎决定重试/扫码循环 |
+| 检索 | `search_url(criteria)` / `matches_criteria(url, criteria)` | URL / bool | 适配器 |
+| 等待 | `wait_results(timeout)` | `{ok, state, reason}`，`state` 为 `ready/login/timeout` | 适配器等待，引擎决定重连/重新导航 |
+| 列表 | `list_jobs()` | `{ok, jobs: JobCard[], reason}` | 适配器 |
+| 公司在线 | `probe_online(job_id)` | `{ok, online, source, reason, evidence}` | 适配器读页面，引擎用 `classify_online` 决策 |
+| 点击 | `click_card(job_id)` | `{ok, index, total, reason}` | 适配器 |
+| 详情 | `read_detail(job_id)` | 详情字典，至少含 `success`；成功时含 `title/company/salary/location/encrypt_job_id/platform` | 适配器 |
+| 聊天 | `open_chat(job_id)` / `open_conversation(hints)` / `chat_input_ready()` / `chat_url()` / `fill_greeting(text)` | `{ok, ...}` | 适配器（dispatch 调用） |
+
+**留在引擎的**：速度档位、条间延时、熔断阈值、重试与登录循环时序、日志格式、
+线程生命周期、停止/暂停信号、文件名与输出格式。这些是策略，不属于某个平台。
+
 ## 已知陷阱
 
 - **CDP 分片超时**：`send_cdp` 每 2 秒 `recv` 一次以便响应停止；分片超时异常必须吞掉继续等，否则采集线程崩溃（55e1d30）。
 - **页面复用判断**：只有 query / city / salary / jobType / degree / experience 六项全部匹配且已登录，才跳过重载；少一项就会重新导航。改筛选参数时同步改 `BossAdapter.matches_criteria`。
 - **导航中被销毁的 target**：登录重定向时 `evaluate` 可能抛异常，`_goto_search` 把异常当作 `login` 处理，触发重新登录流程。
-- **`auto_scroll_list` 故意不 await Promise**：滚动 JS 内部发异步 XHR，等 Promise 会在网络慢时卡住 CDP。
+- **`scroll_list` 故意不 await Promise**：滚动 JS 内部发异步 XHR，等 Promise 会在网络慢时卡住 CDP。
 - **查重口径是 title + company + 区域**：列表阶段用 `areaDistrict`，详情阶段从 `location`（「城市·区域」）取区域；两边都取不到区域时回退旧口径（视为重复）。详情拿到 `encryptJobId` 后还会精确查一次，防止跨文件重复。
 - **手动路线**：`keyword_search=False` 时不会自动导航，依赖用户先在浏览器里搜索 / 滚动。
 - **在线标记的 `<!---->`**：公司离线时 `.boss-logo` 里的在线图标渲染成 Vue 注释节点 `<!---->`，DOM 里根本没有 `.boss-online-icon`。因此"图标不存在 + `row_text_len > 0`"才是离线；`row_text_len == 0` 说明公司行还没渲染出来，一律归 `unknown` 放行，不当作离线。

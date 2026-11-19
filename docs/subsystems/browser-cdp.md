@@ -40,7 +40,7 @@ src.core.browser → server.tracer（仅函数内延迟 import）
 - **端口文件过期**：`try_connect_existing` 先读端口文件，失败再扫 9222–9229；旧文件不会自动删，不要假设它一定有效。
 - **导航后 WebSocket 失效**：页面跳转会销毁 target，原 WS 的响应永远不来；`send_cdp` 超时后由调用方重连。
 - **2 秒切片异常**：`WebSocketTimeoutException` 必须与整体 deadline 区分（55e1d30）。
-- **标签页评分在 `BossAdapter.pick_target`**：`/web/geek/` +5、`jobs` +2、登录页 −8；`find_boss_page` 只做 `/json` 拉取后委托。新增页面类型时更新评分，否则可能连到登录页。
+- **标签页评分在 `BossAdapter.pick_target`**：`/web/geek/` +5、`jobs` +2、登录页 −8；`find_target_page` 只做 `/json` 拉取后委托。新增页面类型时更新评分，否则可能连到登录页。
 - **`bring_to_front` 双保险**：CDP `Page.bringToFront` 在部分窗口管理器无效，补 Win32 `SetForegroundWindow`；最大化窗口不能调 `SW_RESTORE`。
 - **`get_value` 会自动 `json.loads` 字符串**：JS 返回值是 JSON 字符串时，调用方拿到的是 dict，不要再 `json.loads` 一次。
 

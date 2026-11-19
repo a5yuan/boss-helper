@@ -128,6 +128,7 @@ def get_salary_code(salary_min, salary_max):
 
 class BossAdapter:
     site = "boss"
+    display_name = "BOSS 直聘"
 
     def __init__(self, page: Page | None = None, click_timing: dict | None = None):
         self.page = page
@@ -159,6 +160,72 @@ class BossAdapter:
             return s
 
         return sorted(targets, key=score, reverse=True)[0]
+
+    def home_url(self) -> str:
+        """启动与登录前导航的落地页。"""
+        return "https://www.zhipin.com/web/geek/job"
+
+    def login_url(self) -> str:
+        """扫码登录入口页。"""
+        return "https://www.zhipin.com/web/user/?ka=header-login"
+
+    def reload(self) -> dict:
+        """强制刷新当前页，用于登录后重新探测。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        try:
+            self.page.evaluate("location.reload()")
+            return {"ok": True, "reason": ""}
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    def scroll_list(self) -> dict:
+        """向下滚动列表，触发懒加载。
+
+        滚动脚本内部会异步发 XHR，不等 Promise；0.5s 是给懒加载触发留的
+        结算时间，属于平台行为，不放进引擎的 humanize 节奏。
+        """
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        _dt("H4", "scroll_list", "start")
+        try:
+            result = self.page.evaluate(load_js("scroll_list.js"), await_promise=False)
+            self.page.get_value(result)
+            time.sleep(0.5)
+            return {"ok": True, "reason": ""}
+        except StopError:
+            raise
+        except Exception as exc:
+            _dt("H4", "scroll_list", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
+            return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    def scroll_detail(self) -> dict:
+        """滚动浏览右侧详情面板。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        try:
+            self.page.evaluate(load_js("scroll_detail.js"))
+            return {"ok": True, "reason": ""}
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    def scroll_position(self) -> dict:
+        """当前列表滚动位置，用于回跳检测。"""
+        if self.page is None:
+            return {}
+        try:
+            raw = self.page.get_value(self.page.evaluate(load_js("scroll_position.js")))
+            if isinstance(raw, str):
+                return json.loads(raw or "{}")
+            return raw if isinstance(raw, dict) else {}
+        except StopError:
+            raise
+        except Exception:
+            return {}
 
     def probe_login(self) -> LoginProbe:
         """返回 state（in / login / unknown）与判断依据 source。"""

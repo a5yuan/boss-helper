@@ -38,7 +38,7 @@ class BrowserManager:
             print(f"[-] 未找到活跃的 {browser_type} 浏览器")
             return None
 
-        page = bm.find_boss_page()
+        page = bm.find_target_page()
         if not page:
             print("[-] 浏览器已连接，但未找到 BOSS 直聘页面")
             return None
@@ -129,16 +129,16 @@ class BrowserManager:
         except:
             pass
 
-    def find_boss_page(self):
-        """通过 HTTP GET /json 找到 BOSS 直聘标签页。
+    def find_target_page(self):
+        """通过 HTTP GET /json 找到目标平台标签页。
 
         标签页评分属于平台知识，交给适配器的 pick_target；这里只做 /json 拉取。
         """
         from src.adapters.boss import BossAdapter
-        return BossAdapter().pick_target(self.find_boss_pages())
+        return BossAdapter().pick_target(self.find_target_pages())
 
-    def find_boss_pages(self):
-        """返回全部 zhipin.com 标签页（type=page 优先），用于多标签场景。"""
+    def find_target_pages(self):
+        """返回全部目标平台标签页（type=page 优先），用于多标签场景。"""
         try:
             r = requests.get(f"http://127.0.0.1:{self.port}/json", timeout=3)
             return [p for p in r.json() if "zhipin.com" in p.get("url", "")]
