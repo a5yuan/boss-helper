@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 采集输出每条岗位新增 `platform` 字段（当前为 `boss`）；其余字段与旧输出一致
 - 页面操作收敛到 `src/adapters/boss.py`：collector 与 dispatch 只调用适配器，不再直接写 BOSS 选择器
 - 平台契约补齐：首页/登录 URL、刷新、列表与详情滚动都进适配器；`run_collection` 新增 `site` 参数，经 `src/adapters/registry.py` 解析适配器，引擎不再 import 具体平台类
-- `BrowserManager.find_boss_page(s)` 更名为 `find_target_page(s)`，选页打分仍在 `BossAdapter.pick_target`
+- `BrowserManager` 的选页方法收敛为 `list_pages()`，平台归属与打分交给 `BossAdapter.owns_url` / `pick_target`
 - 采集统计新增 `offline` / `online_unknown`：进度面板显示「离线跳过」「状态未知」，总结里「跳过」改为「(重复/薪资)」并单列离线与未知条数
 - `/api/focus` 返回新增 `chat` 字段，报告沟通按钮是否点到；`Enter` 按钮文案改为「定位并沟通」
 - `config.yaml` 的 `start_params` 新增 `speed`；旧配置按 `fast` / `safe_mode` 自动推导，不会强制改回慢速
@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `config.yaml` 的 `start_params` 新增 `site`（默认 `boss`）
 - `dispatch` 不再自己 new Tracker：由 runtime 注入，同一平台共享状态锁与每日配额
 - 采集结束后 AI 钩子使用本次采集返回的确切文件，不再 glob 最新 `jobs_*.json`；`plan_path_for` 改为跟随源文件目录
+- CDP 选页去平台化：`BrowserManager.list_pages` 返回全部 target，归属判断由适配器 `owns_url` 负责
+- 启动后校验端口与页面归属，找不到本平台页面就关闭进程退出；二级平台不再扫描 9222-9229
 
 ---
 

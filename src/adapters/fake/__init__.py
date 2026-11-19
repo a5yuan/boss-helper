@@ -38,7 +38,11 @@ class FakePlatformAdapter:
         self.page = page
         self.click_timing = click_timing
 
+    def owns_url(self, url):
+        return "fake.example" in (url or "")
+
     def pick_target(self, targets):
+        targets = [p for p in (targets or []) if self.owns_url(p.get("url", ""))]
         return targets[0] if targets else None
 
     def home_url(self):

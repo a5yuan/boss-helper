@@ -21,7 +21,7 @@
 
 - [ ] 新增 CDP 命令走 `send_cdp` / `evaluate`，没有直接 `ws.recv()`
 - [ ] 有整体超时；超时按"取数失败"降级，不让线程崩
-- [ ] 页面导航 / 登录跳转后重新定位标签页（`_reconnect_page` / `find_target_page`）
+- [ ] 页面导航 / 登录跳转后重新定位标签页（`_reconnect_page` / `pick_target(list_pages())`）
 - [ ] 选标签页时排除了 `type != "page"`（`shared_worker` 的 URL 也含 `geek-chat`）
 - [ ] `disconnect()` 与 `close()` 的语义没有被混用
 

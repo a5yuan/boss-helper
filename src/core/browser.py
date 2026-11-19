@@ -38,9 +38,10 @@ class BrowserManager:
             print(f"[-] 未找到活跃的 {browser_type} 浏览器")
             return None
 
-        page = bm.find_target_page()
+        from src.adapters.registry import create_adapter
+        page = create_adapter().pick_target(bm.list_pages())
         if not page:
-            print("[-] 浏览器已连接，但未找到 BOSS 直聘页面")
+            print("[-] 浏览器已连接，但未找到目标平台页面")
             return None
 
         if not bm.connect_ws(page["webSocketDebuggerUrl"]):
@@ -51,10 +52,17 @@ class BrowserManager:
         return bm
 
     def try_connect_existing(self):
-        """尝试连接已有的浏览器实例"""
-        port_file = self.config.get("port_file", ".cdp_port")
+        """尝试连接已有的浏览器实例。
 
-        if os.path.exists(port_file):
+        先读本平台的端口文件（含迁移期别名）；只有默认平台允许扫标准端口，
+        二级平台扫 9222-9229 可能接到别的浏览器上。
+        """
+        port_files = self.config.get("port_files") or [
+            self.config.get("port_file", ".cdp_port")
+        ]
+        for port_file in port_files:
+            if not os.path.exists(port_file):
+                continue
             try:
                 with open(port_file, "r") as f:
                     saved_port = int(f.read().strip())
@@ -63,8 +71,11 @@ class BrowserManager:
                     self.port = saved_port
                     print(f"   [+] reusing browser on port {self.port}")
                     return True
-            except:
+            except Exception:
                 pass
+
+        if not self.config.get("allow_port_scan", True):
+            return False
 
         # 扫描标准调试端口
         for port in range(9222, 9230):
@@ -74,7 +85,7 @@ class BrowserManager:
                     self.port = port
                     print(f"   [+] found browser on port {self.port}")
                     return True
-            except:
+            except Exception:
                 pass
 
         return False
@@ -129,19 +140,12 @@ class BrowserManager:
         except:
             pass
 
-    def find_target_page(self):
-        """通过 HTTP GET /json 找到目标平台标签页。
-
-        标签页评分属于平台知识，交给适配器的 pick_target；这里只做 /json 拉取。
-        """
-        from src.adapters.boss import BossAdapter
-        return BossAdapter().pick_target(self.find_target_pages())
-
-    def find_target_pages(self):
-        """返回全部目标平台标签页（type=page 优先），用于多标签场景。"""
+    def list_pages(self):
+        """返回 /json 的全部 target；平台过滤与打分由适配器负责。"""
         try:
             r = requests.get(f"http://127.0.0.1:{self.port}/json", timeout=3)
-            return [p for p in r.json() if "zhipin.com" in p.get("url", "")]
+            data = r.json()
+            return data if isinstance(data, list) else []
         except Exception:
             return []
 

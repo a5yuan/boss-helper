@@ -33,14 +33,15 @@ src.core.browser → server.tracer（仅函数内延迟 import）
 | `src/core/browser.py` | `BrowserManager`：连接、启动、发现页面、CDP 收发、前台化 |
 | `src/config.py` | 浏览器路径 / 端口文件 / profile 目录 |
 | `src/utils/window.py` | Win32 前台化兜底 |
-| `.cdp_port_chrome` / `.cdp_port_edge` | 最近一次使用的调试端口 |
+| `.cdp_port_{platform}_{browser}` | 最近一次使用的调试端口；BOSS 兼容旧 `.cdp_port_{browser}` |
 
 ## 已知陷阱
 
-- **端口文件过期**：`try_connect_existing` 先读端口文件，失败再扫 9222–9229；旧文件不会自动删，不要假设它一定有效。
+- **端口文件过期**：`try_connect_existing` 先读本平台端口文件；只有默认平台失败后才会扫 9222–9229，二级平台禁止扫描，避免接到别的浏览器上。旧文件不会自动删，不要假设它一定有效。
 - **导航后 WebSocket 失效**：页面跳转会销毁 target，原 WS 的响应永远不来；`send_cdp` 超时后由调用方重连。
 - **2 秒切片异常**：`WebSocketTimeoutException` 必须与整体 deadline 区分（55e1d30）。
-- **标签页评分在 `BossAdapter.pick_target`**：`/web/geek/` +5、`jobs` +2、登录页 −8；`find_target_page` 只做 `/json` 拉取后委托。新增页面类型时更新评分，否则可能连到登录页。
+- **标签页归属与评分都在适配器**：`BossAdapter.owns_url` 过滤 zhipin 页面，`pick_target` 再打分（`/web/geek/` +5、`jobs` +2、登录页 −8）；`BrowserManager.list_pages` 只做 `/json` 拉取，不认任何平台。新增页面类型时更新评分，否则可能连到登录页。
+- **启动后的端口校验**：`launch` 用 `/json/version` 确认端口活着，collector 再用 `owns_url` + `webSocketDebuggerUrl` 确认有本平台页面；没有就关掉进程退出，不带着错误端口继续。
 - **`bring_to_front` 双保险**：CDP `Page.bringToFront` 在部分窗口管理器无效，补 Win32 `SetForegroundWindow`；最大化窗口不能调 `SW_RESTORE`。
 - **`get_value` 会自动 `json.loads` 字符串**：JS 返回值是 JSON 字符串时，调用方拿到的是 dict，不要再 `json.loads` 一次。
 
@@ -48,7 +49,7 @@ src.core.browser → server.tracer（仅函数内延迟 import）
 
 ```bash
 # 确认端口和标签页
-cat .cdp_port_chrome
+cat .cdp_port_boss_chrome
 curl http://127.0.0.1:<port>/json
 ```
 

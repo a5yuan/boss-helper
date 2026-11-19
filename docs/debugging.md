@@ -49,7 +49,7 @@ python main.py --new -b chrome -n 20
 - 端口文件：`.cdp_port_chrome` / `.cdp_port_edge`。
 - 端口扫描范围：9222–9229（`try_connect_existing`）。
 - 标签页列表：`curl http://127.0.0.1:<port>/json`。
-- 常见坑：导航 / 登录后 `webSocketDebuggerUrl` 会变，必须重新 `find_target_page()`；`shared_worker` 的 URL 也可能含 `geek-chat`，但它不是页面。
+- 常见坑：导航 / 登录后 `webSocketDebuggerUrl` 会变，必须重新 `adapter.pick_target(bm.list_pages())`；`shared_worker` 的 URL 也可能含 `geek-chat`，但它不是页面。
 
 ## 常见故障
 

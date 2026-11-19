@@ -63,7 +63,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 | 分组 | 方法 | 返回 | 谁负责 |
 |---|---|---|---|
 | 身份 | `site` / `display_name` | 字符串 | 适配器 |
-| 选页 | `pick_target(targets)` | `Tab \| None` | 适配器打分；传输层 `find_target_pages` 先按平台域名过滤 |
+| 选页 | `owns_url(url)` / `pick_target(targets)` | bool / `Tab \| None` | 适配器过滤归属并打分；传输层 `list_pages` 只拉 `/json` |
 | 站点入口 | `home_url()` / `login_url()` / `reload()` | URL / `{ok, reason}` | 适配器 |
 | 滚动 | `scroll_list()` / `scroll_detail()` / `scroll_position()` | `{ok}` / `{ok}` / `{scrollTop}` | 适配器执行，引擎决定何时调用 |
 | 登录 | `probe_login()` | `{state, source}`，`state` 为 `in/login/unknown` | 适配器探测，引擎决定重试/扫码循环 |

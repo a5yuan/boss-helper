@@ -35,7 +35,7 @@ class FakeBrowser:
             self.url = start_url
         return True
 
-    def find_target_pages(self):
+    def list_pages(self):
         return [{"type": "page", "url": self.url, "webSocketDebuggerUrl": "ws://fake"}]
 
     def connect_ws(self, ws_url):

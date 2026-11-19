@@ -92,6 +92,25 @@ def _current_url(browser):
         return ""
 
 
+def _wait_platform_page(browser, adapter, timeout=5.0):
+    """确认启动出来的端口上确实有本平台的页面。
+
+    端口能应答 /json/version 只说明有浏览器，还要看页面归属，避免二级平台
+    接到别的浏览器上。返回 None 表示没有可用页面。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for page in browser.list_pages():
+            if page.get("type") != "page":
+                continue
+            if not page.get("webSocketDebuggerUrl"):
+                continue
+            if adapter.owns_url(page.get("url") or ""):
+                return page
+        time.sleep(0.5)
+    return None
+
+
 def _reconnect_page(browser, adapter, ctrl):
     """重新定位活跃的目标标签页并重连 CDP。
 
@@ -99,7 +118,7 @@ def _reconnect_page(browser, adapter, ctrl):
     导航/取数"无反应"。每次人工介入后都重连，连到真正在用的那个页面。
     返回 True 表示已连上可用页面。
     """
-    page = adapter.pick_target(browser.find_target_pages())
+    page = adapter.pick_target(browser.list_pages())
     if not page:
         _dt("H1", "_reconnect_page", "no_target_page")
         return False
@@ -225,10 +244,15 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             ctrl.log(f"[-] {browser_type.capitalize()} 启动失败")
             ctrl.status("error", "browser launch failed")
             return
-        ctrl.log(f"   [+] 新 {browser_type.capitalize()} 就绪")
+        if not _wait_platform_page(browser, adapter):
+            ctrl.log(f"[-] 端口已启动，但没有找到 {adapter.display_name} 页面，拒绝继续")
+            browser.close()
+            ctrl.status("error", "platform page not found")
+            return
+        ctrl.log(f"   [+] 新 {browser_type.capitalize()} 就绪（端口已确认）")
 
     # ===== 检查是否已有目标平台页面 =====
-    target_page = adapter.pick_target(browser.find_target_pages())
+    target_page = adapter.pick_target(browser.list_pages())
 
     if keyword_mode:
         # ---- 关键词路线：不做"直接分析该页面"确认，稍后自动导航搜索页 ----
@@ -241,7 +265,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 "完成后点「我已完成，继续」。",
                 kind="login",
             )
-            target_page = adapter.pick_target(browser.find_target_pages())
+            target_page = adapter.pick_target(browser.list_pages())
             if not target_page:
                 ctrl.log("[-] 未找到目标平台页面")
                 ctrl.status("error", "no target page")
@@ -267,7 +291,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             ctrl.log("=" * 60)
             ctrl.wait_user("\n[等待中...按回车开始分析]: ", kind="confirm")
 
-            target_page = adapter.pick_target(browser.find_target_pages())
+            target_page = adapter.pick_target(browser.list_pages())
             if not target_page:
                 ctrl.log("[-] 未找到目标平台页面")
                 ctrl.status("error", "no target page")

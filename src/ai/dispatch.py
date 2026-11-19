@@ -138,7 +138,7 @@ def _connect_one(browser_type: str, platform: str | None = None) -> BrowserManag
     bm = BrowserManager(config=cfg)
     if not bm.try_connect_existing():
         raise DispatchError(f"没有可连接的 {browser_type}")
-    page = bm.find_target_page()
+    page = BossAdapter().pick_target(bm.list_pages())
     if not page:
         raise DispatchError(f"{browser_type} 里没有 zhipin.com 页面")
     if not bm.connect_ws(page.get("webSocketDebuggerUrl", "")):

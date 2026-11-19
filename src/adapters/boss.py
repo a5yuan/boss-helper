@@ -138,11 +138,15 @@ class BossAdapter:
                 if key in click_timing:
                     self._click_timing[key] = click_timing[key]
 
+    def owns_url(self, url: str) -> bool:
+        return "zhipin.com" in (url or "")
+
     def pick_target(self, targets: list[Tab]) -> Tab | None:
         """从 zhipin 标签页里挑"最像在用"的那个，避免连到失效目标。
 
         优先级：可见的 geek 招聘页 > 任意 zhipin 普通页 > 任意 zhipin 目标。
         """
+        targets = [p for p in (targets or []) if self.owns_url(p.get("url", ""))]
         if not targets:
             return None
 

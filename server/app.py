@@ -383,18 +383,21 @@ def _with_browser(fn, prefer_chat: bool = False):
     if session.running:
         return {"ok": False, "error": "采集任务正在运行，请先停止再定位"}
     from src.core.browser import BrowserManager
+    from src.adapters.boss import BossAdapter
 
     bm = BrowserManager(config=get_config("chrome"))
     if not bm.try_connect_existing():
         return {"ok": False, "error": "没有正在运行的调试浏览器，请先跑一次采集"}
-    # 只考虑真正的标签页；shared_worker 的 URL 里也含 geek-chat，不能选它
-    pages = [p for p in bm.find_target_pages() if p.get("type") == "page"]
+    adapter = BossAdapter()
+    # 只考虑本平台真正的标签页；shared_worker 的 URL 里也含 geek-chat，不能选它
+    pages = [p for p in bm.list_pages()
+             if p.get("type") == "page" and adapter.owns_url(p.get("url", ""))]
     page = None
     if prefer_chat:
         chat = [p for p in pages if "chat" in p.get("url", "")]
         page = chat[-1] if chat else None
     if page is None:
-        best = bm.find_target_page()
+        best = adapter.pick_target(bm.list_pages())
         page = best if (best and best.get("type") == "page") else (pages[0] if pages else None)
     if not page:
         return {"ok": False, "error": "没有找到 BOSS 标签页"}
