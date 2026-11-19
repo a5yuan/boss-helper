@@ -8,7 +8,9 @@ import os
 import tempfile
 import unittest
 
-from src.tracking import Tracker, track_key
+from unittest import mock
+
+from src.tracking import Tracker, TrackingError, track_key
 
 
 class TestTrackKey(unittest.TestCase):
@@ -61,6 +63,12 @@ class TestTracker(unittest.TestCase):
     def test_all_returns_dict(self):
         self.tracker.set("eid-1", "skipped")
         self.assertIsInstance(self.tracker.all(), dict)
+
+    def test_replace_failure_raises_and_cleans_tmp(self):
+        with mock.patch("src.tracking.os.replace", side_effect=PermissionError("busy")):
+            with self.assertRaises(TrackingError):
+                self.tracker.set("eid-1", "applied")
+        self.assertFalse(os.path.exists(self.path + ".tmp"))
 
 
 class TestLegacyMigration(unittest.TestCase):

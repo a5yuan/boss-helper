@@ -15,6 +15,10 @@ from datetime import datetime
 VALID_STATUS = {"new", "shortlisted", "skipped", "applied"}
 
 
+class TrackingError(RuntimeError):
+    """状态写盘失败（Windows 上文件被读句柄占用等）。"""
+
+
 def track_key(security_id: str, encrypt_job_id: str) -> str:
     """encryptJobId 跨页面加载稳定，优先用它做主键；securityId 仅作会话内兜底。"""
     return encrypt_job_id or security_id
@@ -57,11 +61,18 @@ class Tracker:
             return {}
 
     def _save(self, data: dict) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.path)
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise TrackingError(f"写入 {self.path} 失败: {exc}") from exc
 
     def all(self) -> dict:
         return self._load()

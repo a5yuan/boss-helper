@@ -322,7 +322,7 @@ def api_debug_panel():
 # ── 复核队列：状态跟踪 + 浏览器定位 + 招呼语填充 ────────────────────────────
 
 from src.runtime import get_runtime  # noqa: E402
-from src.tracking import track_key  # noqa: E402
+from src.tracking import TrackingError, track_key  # noqa: E402
 
 
 class TrackBody(BaseModel):
@@ -427,7 +427,7 @@ def api_tracking_set(body: TrackBody):
         return {"ok": False, "error": "缺少岗位 ID"}
     try:
         return {"ok": True, "record": get_runtime().tracker.set(key, body.status, body.note)}
-    except ValueError as exc:
+    except (ValueError, TrackingError) as exc:
         return {"ok": False, "error": str(exc)}
 
 
