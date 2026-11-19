@@ -14,7 +14,7 @@
 - [ ] 持久化用 `encrypt_job_id`；`security_id` 没有被单独写进 tracking 主键
 - [ ] 状态值在 `VALID_STATUS` 内
 - [ ] `tracking.json` 写入是原子写（`tmp + os.replace`）
-- [ ] 新采集字段在 `DetailPanelReader.read_detail`、`webui/src/api.ts:Job`、`/review` 三处都能取到（或明确只给其中一处用）
+- [ ] 新采集字段在 `BossAdapter.read_detail`、`webui/src/api.ts:Job`、`/review` 三处都能取到（或明确只给其中一处用）
 - [ ] 旧数据（缺 `encrypt_job_id`）有降级提示，不会静默失败
 
 ## CDP / 浏览器

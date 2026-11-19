@@ -82,8 +82,7 @@ python main.py --new -b chrome -n 20
                    │  ← 本地 WebSocket 通信
 ┌──────────────────▼──────────────────────────────────┐
 │  BOSS-Helper (CLI 或 pywebview)                     │
-│   • VueExtractor    → 从 DOM 组件树读取卡片 ID      │
-│   • DetailPanelReader → 从 Vue 实例内存读取详情内容 │
+│   • BossAdapter     → 平台页面操作（列表/详情/聊天）│
 │   • OutputWriter    → 导出数据到 jobs_*.json        │
 └─────────────────────────────────────────────────────┘
 ```
@@ -106,9 +105,9 @@ boss-helper/
 ├── src/
 │   ├── collector.py         # 核心分析轮询调度
 │   ├── config.py            # 配置加载
+│   ├── adapters/            # 平台适配器（boss.py = 页面操作）
 │   ├── core/
-│   │   ├── browser.py       # CDP 浏览器控制类
-│   │   └── extractor.py     # DOM & Vue 内存提取器
+│   │   └── browser.py       # CDP 浏览器控制类
 │   └── utils/               # 工具类 (点击辅助等)
 ├── docs/                    # 文档目录
 ├── CHANGELOG.md             # 更新日志

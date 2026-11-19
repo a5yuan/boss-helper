@@ -21,8 +21,31 @@ from src.adapters.base import (
 )
 from src.core.browser import StopError
 from src.core.js_loader import load_js
+from src.utils import chat_input
 
 SEARCH_BASE = "https://www.zhipin.com/web/geek/jobs"
+CHAT_URL = "https://www.zhipin.com/web/geek/chat"
+
+# 在聊天页点开会话：li.click() 触发不了 Vue 的选择逻辑，只负责定位坐标。
+_OPEN_CONV_JS = r"""
+(() => {
+  const rows = Array.from(document.querySelectorAll('.user-list-content ul li'));
+  if (!rows.length) return JSON.stringify({ ok: false, reason: '会话列表为空' });
+  const hints = __HINTS__;
+  const norm = el => (el.innerText || '').replace(/\s+/g, ' ');
+  const hit = rows.find(r => hints.some(h => h && norm(r).includes(h)));
+  const target = hit || rows[0];
+  target.scrollIntoView({ block: 'center' });
+  const r = target.getBoundingClientRect();
+  if (r.width < 20 || r.height < 10) return JSON.stringify({ ok: false, reason: '会话条目不可见' });
+  return JSON.stringify({
+    ok: true, matched: !!hit,
+    x: Math.round(r.left + r.width / 2),
+    y: Math.round(r.top + r.height / 2),
+    text: norm(target).slice(0, 60),
+  });
+})()
+"""
 
 # 点击卡片的本地等待，默认值与 browser_behavior.click_job 的历史默认值一致；
 # 引擎按速度档位覆盖。
@@ -471,3 +494,96 @@ class BossAdapter:
         sid_e = target_sid.replace("\\", "\\\\").replace("'", "\\'")
         extra = load_js("read_panel_extra.js") if include_job_detail else ""
         return load_js("read_panel.js", {"'__SID__'": f"'{sid_e}'", "__EXTRA__": extra})
+
+    def open_chat(self, job_id: str) -> dict:
+        """点「立即沟通」：优先 CDP 原生点击（能触发 SPA 处理器），失败退回 element.click()。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        locate = load_js("locate_chat_button.js")
+        js_click = load_js("click_chat.js")
+        for _ in range(3):
+            try:
+                raw = self.page.get_value(self.page.evaluate(locate))
+                info = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            except StopError:
+                raise
+            except Exception as exc:
+                info = {"ok": False, "reason": f"定位失败: {exc}"}
+            if info.get("ok"):
+                self.page.bring_to_front()
+                self.page.native_click(info["x"], info["y"])
+                time.sleep(1.0)
+                return info
+            time.sleep(0.6)
+        # 兜底：老办法，直接在页面里 click()
+        try:
+            raw = self.page.get_value(self.page.evaluate(js_click))
+            return json.loads(raw) if isinstance(raw, str) else (raw or {"ok": False})
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+
+    def open_conversation(self, hints: list[str] | None = None, timeout: float = 12.0) -> dict:
+        """在聊天页点开会话，等输入框变成可见。
+
+        li.click() 触发不了 Vue 的选择逻辑（实测点击后仍无选中态），
+        必须用 CDP 设备级鼠标事件点坐标。新会话排在最前，优先按公司 /
+        招聘者名字匹配，匹配不到退回第一条。
+        """
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        js = _OPEN_CONV_JS.replace("__HINTS__", json.dumps(
+            [h for h in (hints or []) if h], ensure_ascii=False))
+        try:
+            raw = self.page.get_value(self.page.evaluate(js))
+            res = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": f"定位会话失败: {exc}"}
+        if not res.get("ok"):
+            return res
+
+        self.page.bring_to_front()
+        for attempt in range(3):
+            self.page.native_click(res["x"], res["y"])
+            deadline = time.time() + timeout / 2
+            while time.time() < deadline:
+                if self.chat_input_ready():
+                    return res | {"input_ready": True, "clicks": attempt + 1}
+                time.sleep(0.4)
+            time.sleep(0.5)
+        return res | {"input_ready": False, "clicks": 3}
+
+    def chat_input_ready(self) -> bool:
+        """聊天页的最后一个可见输入框是否就绪。"""
+        if self.page is None:
+            return False
+        try:
+            if "geek/chat" not in (self.page.get_value(self.page.evaluate("location.href")) or ""):
+                return False
+            raw = self.page.get_value(self.page.evaluate(
+                "(() => { for (const e of document.querySelectorAll('textarea, [contenteditable=\'true\']')) {"
+                " const r = e.getBoundingClientRect();"
+                " if (r.width > 40 && r.height > 8) return true; } return false; })()"))
+            return bool(raw)
+        except StopError:
+            raise
+        except Exception:
+            return False
+
+    def chat_url(self) -> str:
+        return CHAT_URL
+
+    def fill_greeting(self, text: str, attempts: int = 4) -> dict:
+        """填招呼语。实际写入统一走 src/utils/chat_input.fill_chat_input。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        last = {"ok": False, "reason": "未执行"}
+        for _ in range(attempts):
+            last = chat_input.fill_chat_input(self.page, text)
+            if last.get("ok"):
+                return last
+            time.sleep(0.8)
+        return last

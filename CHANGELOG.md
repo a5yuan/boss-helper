@@ -20,13 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复填充后草稿丢失：改用 CDP `Input.insertText` 真实输入，并在导航前 blur 触发草稿保存
 - `dispatch --force-refill`：跳过「已联系过」过滤，只用于补回丢失的草稿
 
-- 采集前跳过公司不在线的岗位：读 `.boss-logo` 内的 `.boss-online-icon`，缺失即离线，不点击卡片、不读详情（`src/js/read_company_online.js` + `src/utils/company_online.py` + `CompanyOnlineReader`）
+- 采集前跳过公司不在线的岗位：读 `.boss-logo` 内的 `.boss-online-icon`，缺失即离线，不点击卡片、不读详情（`src/js/read_company_online.js` + `src/utils/company_online.py` + `BossAdapter.probe_online`）
 - 采集速度档位 `slow` / `normal` / `fast`：调整点击前后等待、条间延时与间隔休息，不改变读取方式；前端「采集速度」下拉可选
 - `click_vue.js` / `click_dom.js` 的点击等待改为 `__SCROLL_WAIT__` / `__CLICK_DELAY__` 占位符，由速度档位注入
 - 复核队列定位后自动点击「立即沟通」打开聊天窗（`/api/focus` 新增 `open_chat`，默认开启；只点按钮、不发送消息）
 
 ### Changed
 
+- 采集输出每条岗位新增 `platform` 字段（当前为 `boss`）；其余字段与旧输出一致
+- 页面操作收敛到 `src/adapters/boss.py`：collector 与 dispatch 只调用适配器，不再直接写 BOSS 选择器
 - 采集统计新增 `offline` / `online_unknown`：进度面板显示「离线跳过」「状态未知」，总结里「跳过」改为「(重复/薪资)」并单列离线与未知条数
 - `/api/focus` 返回新增 `chat` 字段，报告沟通按钮是否点到；`Enter` 按钮文案改为「定位并沟通」
 - `config.yaml` 的 `start_params` 新增 `speed`；旧配置按 `fast` / `safe_mode` 自动推导，不会强制改回慢速

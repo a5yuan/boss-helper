@@ -4,7 +4,7 @@
 
 `src/collector.py` 编排一次完整的采集：连接 / 启动浏览器 → 确认登录 → 导航到目标页 → 循环「提取列表 → 点击卡片 → 读详情 → 写文件」。
 
-它**不负责** CDP 传输（`browser.py`）、页面 DOM / Vue 解析（`extractor.py` + `src/js/`）、输出格式（`writer.py`）。
+它**不负责** CDP 传输（`browser.py`）、平台页面操作（`src/adapters/boss.py` + `src/js/`）、输出格式（`writer.py`）。
 
 入口：`run_collection(...)`。CLI 由 `main.py` 调用，GUI 由 `server/session.py` 在子线程调用。
 
@@ -24,21 +24,23 @@
 
 ```
 main.py / server.session → src.collector
-src.collector → src.core.browser, src.core.extractor,
-                src.utils.browser_behavior, src.utils.salary,
-                src.storage.writer, src.control, src.config
+src.collector → src.adapters.base, src.adapters.boss,
+                src.core.browser, src.utils.browser_behavior,
+                src.utils.salary, src.storage.writer, src.control, src.config
+src.adapters.boss → src.core.js_loader, src.utils.chat_input, src.core.browser（仅异常类型）
 src.collector → server.tracer（仅函数内延迟 import）
 ```
 
-不允许 `src.core.*` 反向 import `collector`。
+不允许 `src.core.*` 反向 import `collector`；平台相关页面操作只能放在适配器里。
 
 ## 关键文件
 
 | 文件 | 作用 |
 |---|---|
-| `src/collector.py` | 主流程、登录探测、导航、循环、熔断、进度 |
-| `src/core/extractor.py` | `VueExtractor.extract` 取列表；`DetailPanelReader.read_detail` 读详情 |
-| `src/utils/browser_behavior.py` | 点击卡片、滚动、随机浏览间隔、`SPEED_PROFILES` 速度档位 |
+| `src/collector.py` | 主流程、登录等待、导航、循环、熔断、进度；平台策略只做调度 |
+| `src/adapters/base.py` | `PlatformAdapter` 契约、页面门面、结果形状 |
+| `src/adapters/boss.py` | BOSS 页面操作：选页 / 登录探针 / 检索 URL / 列表 / 在线 / 点击 / 详情 / 聊天 / 招呼语 |
+| `src/utils/browser_behavior.py` | 滚动、随机浏览间隔、`SPEED_PROFILES` 速度档位（点击在适配器） |
 | `src/utils/salary.py` | 薪资解析与区间匹配 |
 | `src/storage/writer.py` | `jobs_YYYY-MM-DD[_tag].json/.md` 增量写 + 内存查重 |
 | `src/control.py` | Console / GUI 控制器（日志、进度、暂停、等待用户） |
@@ -50,7 +52,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 ## 已知陷阱
 
 - **CDP 分片超时**：`send_cdp` 每 2 秒 `recv` 一次以便响应停止；分片超时异常必须吞掉继续等，否则采集线程崩溃（55e1d30）。
-- **页面复用判断**：只有 query / city / salary / jobType / degree / experience 六项全部匹配且已登录，才跳过重载；少一项就会重新导航。改筛选参数时同步改 `page_reuse_check`。
+- **页面复用判断**：只有 query / city / salary / jobType / degree / experience 六项全部匹配且已登录，才跳过重载；少一项就会重新导航。改筛选参数时同步改 `BossAdapter.matches_criteria`。
 - **导航中被销毁的 target**：登录重定向时 `evaluate` 可能抛异常，`_goto_search` 把异常当作 `login` 处理，触发重新登录流程。
 - **`auto_scroll_list` 故意不 await Promise**：滚动 JS 内部发异步 XHR，等 Promise 会在网络慢时卡住 CDP。
 - **查重口径是 title + company + 区域**：列表阶段用 `areaDistrict`，详情阶段从 `location`（「城市·区域」）取区域；两边都取不到区域时回退旧口径（视为重复）。详情拿到 `encryptJobId` 后还会精确查一次，防止跨文件重复。

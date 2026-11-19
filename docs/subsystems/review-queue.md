@@ -36,7 +36,7 @@ src.tracking → src.config（延迟 import）
 | `server/review.html` | 独立复核页：筛选、快捷键、详情、动作 |
 | `src/tracking.py` | `Tracker`：读 / 写 `tracking.json` |
 | `server/app.py` | `track_key`、`_job_files`、`_find_job`、`_with_browser`、`/api/focus`、`/api/greet` |
-| `src/utils/browser_behavior.py` | `click_job`：Vue 点击优先，DOM 兜底 |
+| `src/adapters/boss.py` | `click_card`：Vue 点击优先，DOM 兜底（`/api/focus` 调用） |
 | `output/tracking.json` | 状态库（不入库） |
 
 ## 快捷键
