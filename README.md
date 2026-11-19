@@ -38,6 +38,13 @@ BOSS-Helper 是一个轻量级工具，支持 **桌面可视化窗口 (pywebview
 
 ### 桌面 GUI 模式
 
+**最省事的方式**：双击项目根目录的 `启动.bat`（无黑窗，端口已占用时会提示）。
+
+出问题需要看日志时，双击 `启动-调试.bat`，控制台会保留输出。
+
+手动启动：
+
+
 ```powershell
 # 1. 克隆代码仓库
 git clone https://github.com/qinquan-ai/boss_helper.git
