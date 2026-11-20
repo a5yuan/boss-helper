@@ -30,9 +30,11 @@ class TestDrainEvents(unittest.TestCase):
         fake.status("running")
 
         events = session.drain_events()
-        # 按 start 顺序拼接，每条事件都追加 task_id
+        # 按 start 顺序拼接，每条事件都追加 task_id 与 platform
         self.assertEqual([e["task_id"] for e in events],
                          ["t-boss", "t-boss", "t-fake", "t-fake"])
+        self.assertEqual([e["platform"] for e in events],
+                         ["boss", "boss", "fake", "fake"])
         self.assertEqual(events[0]["msg"], "老板平台日志")
         self.assertEqual((events[1]["done"], events[1]["total"]), (2, 10))
         self.assertEqual(events[2]["level"], "error")
@@ -53,8 +55,8 @@ class TestDrainEvents(unittest.TestCase):
         session._retire("t-old", session.tasks.pop("t-old"))
 
         events = session.drain_events()
-        self.assertEqual([(e["type"], e.get("state"), e["task_id"]) for e in events],
-                         [("status", "done", "t-old")])
+        self.assertEqual([(e["type"], e.get("state"), e["task_id"], e["platform"]) for e in events],
+                         [("status", "done", "t-old", "boss")])
 
 
 class TestSnapshotEvents(unittest.TestCase):

@@ -139,20 +139,25 @@ class Session:
             return [(task_id, task["controller"]) for task_id, task in self.tasks.items()]
 
     def drain_events(self) -> list[dict]:
-        """取出所有活任务的事件，复制后追加 task_id，按任务顺序拼接。
+        """取出所有任务的事件，复制后追加 task_id 与 platform，按任务顺序拼接。
 
         drain() 会在 controller 的队列上取事件，故意放在锁外，避免慢 controller 拖住会话锁。
         任务结束时最后一条 status 可能还没被轮询到就移出了 tasks，所以终态 controller
         也排空一次，否则前端收不到「done / stopped / error」这条收尾事件。
+
+        每条事件都自带 platform：前端可能同时看到别的客户端启动的任务，
+        只靠 task_id 会把新任务记到当前选中的平台下。
         """
         events: list[dict] = []
-        pairs = self.controllers()
         with self._lock:
-            pairs += [(task_id, record[0]["controller"])
+            pairs = [(task_id, task["controller"], task["platform"])
+                     for task_id, task in self.tasks.items()]
+            pairs += [(task_id, record[0]["controller"],
+                       record[0].get("platform") or DEFAULT_PLATFORM)
                       for task_id, record in self._terminal.items()]
-        for task_id, ctrl in pairs:
+        for task_id, ctrl, platform in pairs:
             for ev in ctrl.drain():
-                events.append({**ev, "task_id": task_id})
+                events.append({**ev, "task_id": task_id, "platform": platform})
         return events
 
     @staticmethod
