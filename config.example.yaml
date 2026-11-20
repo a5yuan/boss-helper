@@ -11,6 +11,16 @@ output:
   # 输出目录（留空则使用项目下 output/）
   dir: ""
 
+# ===== 平台段覆盖（可选）=====
+# 留空的项走默认值。BOSS 没有 boss: 段，仍按旧规则找 profile / 端口文件。
+zhaopin:
+  path: ""            # 浏览器路径，留空自动检测
+  profile_dir: ""     # 留空 = profiles/zhaopin/<browser>
+  output_dir: ""      # 留空 = output/zhaopin
+  port_file: ""       # 留空 = .cdp_port_zhaopin_<browser>
+  speed: ""           # 预留：实际速度仍由运行参数 speed 决定
+  daily_limit: 0      # 预留：投递侧未实现，只读采集不消费
+
 humanize:
   # 注意：当前版本采集节奏由 start_params.speed（slow / normal / fast）控制，
   # 以下字段仅为旧配置保留，尚未生效。

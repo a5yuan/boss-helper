@@ -44,6 +44,7 @@ src.collector → server.tracer（仅函数内延迟 import）
 | `src/adapters/base.py` | `PlatformAdapter` 契约、页面门面、结果形状 |
 | `src/adapters/registry.py` | `site` → `import src.adapters.<site>`，平台自注册；新增平台只建目录，不改公共文件 |
 | `src/adapters/boss.py` | BOSS 页面操作：选页 / 登录探针 / 检索 URL / 列表 / 在线 / 点击 / 滚动 / 详情 / 聊天 / 招呼语 |
+| `src/adapters/zhaopin/` | 智联招聘只读适配器：读 SSR `__INITIAL_STATE__.positionList`；投递侧返回 `unsupported:` |
 | `src/utils/browser_behavior.py` | 随机浏览间隔、`SPEED_PROFILES` 速度档位（滚动与点击都在适配器） |
 | `src/utils/salary.py` | 薪资解析与区间匹配 |
 | `src/storage/writer.py` | `jobs_YYYY-MM-DD[_tag].json/.md` 增量写 + 内存查重 |
@@ -96,6 +97,17 @@ src.collector → server.tracer（仅函数内延迟 import）
 - **手动路线**：`keyword_search=False` 时不会自动导航，依赖用户先在浏览器里搜索 / 滚动。
 - **在线标记的 `<!---->`**：公司离线时 `.boss-logo` 里的在线图标渲染成 Vue 注释节点 `<!---->`，DOM 里根本没有 `.boss-online-icon`。因此"图标不存在 + `row_text_len > 0`"才是离线；`row_text_len == 0` 说明公司行还没渲染出来，一律归 `unknown` 放行，不当作离线。
 - **速度档位**：`slow` 沿用原安全模式节奏（Vue 滚动等待 600ms、DOM 点击延迟 300ms、点后 0.5s，平均约 4.7s/条，每 12 条休息 8~18s）；`normal` 450/200/0.3s，平均约 2.2s/条、每 25 条休息 4~8s；`fast` 250/100/0.1s，条间 0.3~0.8s、不滚动详情、不休息。改档位只改 `SPEED_PROFILES`，不要在 collector 里散落魔法数字。
+
+### 智联招聘（`site="zhaopin"`）
+
+- **只读首屏 20 条**：加 `p` / `page` / `pageIndex` 只被抄进 `queryParams`，列表不变；滚到底也不加载更多。要更多结果只能换关键词或城市。
+- **筛选不可寻址**：薪资 / 学历 / 经验是前端下拉，点选后 URL、`queryParams`、列表都不变，也不产生搜索请求。`search_url` 只拼 `jl` + `kw`；薪资由引擎用 `salary_in_range` 在本地粗筛。
+- **详情不点卡片**：点卡片不改 `selectedJobId`。完整 JD 在 `positionList[i].jobDetailData.position.desc.description`，列表项里的 `jobDescription` 是截断版。
+- **`probe_login` 的 `in` 表示「页面可读」**：游客态也能读全量列表与 JD。引擎前置检查先导航到首页，按「登录/注册」文案判成 `login` 会把流程卡进扫码循环，所以只有 passport / `/login` 页面才返回 `login`。
+- **`probe_online` 恒为 unknown**：智联没有公司在线标识，引擎按未知放行。
+- **`security_id` = 岗位号**：智联没有同会话卡片 id，稳定岗位号兼作 `/api/focus` 的定位键；持久化主键仍是 `encrypt_job_id`。
+- **遗留**：`server/app.py:api_focus` 的 URL 兜底写死 `zhipin.com/job_detail/<eid>.html`。智联记录现在靠非空 `security_id` 走 click 分支绕开它；若某条记录缺 `security_id`，定位会跳到 BOSS 域名。改 `server/app.py` 时一并修。
+- **遗留**：`/api/focus` 的「打开聊天」直接执行 `src/js/click_chat.js`，没走 `adapter.open_chat`。实测该脚本在智联页面只匹配文本「立即沟通 / 继续沟通」，当前页面只有「立即投递」和隐藏的「继续沟通」，返回 `ok:false`，不会点到投递；但这是靠文本不重合挡住的，改 `server/app.py` 时应改为调用 `adapter.open_chat`。
 
 ## 测试方式
 

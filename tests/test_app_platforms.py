@@ -27,11 +27,13 @@ class TestPlatformCatalog(unittest.TestCase):
         # 默认平台排第一，其余按名字排序
         self.assertEqual(names[0], "boss")
         self.assertIn("fake", names)
+        self.assertIn("zhaopin", names)
         self.assertEqual(names[1:], sorted(names[1:]))
 
         display = {p["name"]: p["display_name"] for p in platforms}
         self.assertEqual(display["boss"], "BOSS 直聘")
         self.assertEqual(display["fake"], "假平台")
+        self.assertEqual(display["zhaopin"], "智联招聘")
 
     def test_catalog_skips_modules_without_adapter(self):
         names = [p["name"] for p in server_app.platform_catalog()]

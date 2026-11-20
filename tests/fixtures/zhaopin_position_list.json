@@ -1,0 +1,488 @@
+[
+  {
+    "name": "测试（全国多地有岗位）",
+    "number": "CCL1480117890J40911564605",
+    "jobId": 40911564605,
+    "salary60": "1.2-2.4万·14薪",
+    "salaryReal": "12001-24000",
+    "companyName": "外企德科数字技术有限公司",
+    "workCity": "杭州",
+    "cityDistrict": "滨江",
+    "streetName": "长河",
+    "workingExp": "1-3年",
+    "education": "本科",
+    "industryName": "软件/IT服务",
+    "companySize": "10000人以上",
+    "financingStage": null,
+    "welfareLabel": [],
+    "jobSkillTags": [
+      {
+        "id": 270059964,
+        "name": "Java",
+        "standard": false
+      },
+      {
+        "id": 270060055,
+        "name": "Python",
+        "standard": false
+      },
+      {
+        "id": 270060019,
+        "name": "Shell",
+        "standard": false
+      },
+      {
+        "id": 270060071,
+        "name": "Golang",
+        "standard": false
+      },
+      {
+        "id": 270060002,
+        "name": "C/C++",
+        "standard": false
+      }
+    ],
+    "commercialLabel": [
+      {
+        "labelDescription": null,
+        "type": 22,
+        "typeName": "劳务派遣",
+        "typeShowLabel": "https://img04.zhaopin.com/2012/other/mobile/capp/position/ui24/tag_CV_juli-2.png?w=78&h=48&r=3"
+      },
+      {
+        "labelDescription": null,
+        "type": 24,
+        "typeName": "新发布",
+        "typeShowLabel": "https://img09.zhaopin.com/2012/other/mobile/capp/position/ui24/tag_JD_waipai.png?w=48&h=48&r=3"
+      }
+    ],
+    "publishTime": "2026-11-20 15:19:02",
+    "positionUrl": "https://www.zhaopin.com/jobdetail/CCL1480117890J40911564605.htm",
+    "jobDescription": "岗位职责参与云存储、分布式系统需求评审、测试方案设计、用例开发、缺陷闭环，负责功能、性能、可靠性、DFX专项测试开发自动化测试脚本、搭建/维护",
+    "jobSummary": "",
+    "labels": null,
+    "topLabel": null,
+    "cardCustomJson": "{\"address\":\"杭州 滨江 长河\",\"companyName\":\"客户公司：华为\",\"locationType\":\"5\",\"publishNew\":1,\"salary60\":\"1.2-2.4万·14薪\",\"strengthLabel\":\"\"}",
+    "skillLabel": [
+      {
+        "state": 0,
+        "value": "Java"
+      },
+      {
+        "state": 0,
+        "value": "Python"
+      },
+      {
+        "state": 0,
+        "value": "Shell"
+      },
+      {
+        "state": 0,
+        "value": "Golang"
+      },
+      {
+        "state": 0,
+        "value": "C/C++"
+      }
+    ],
+    "jobDetailData": {
+      "position": {
+        "base": {
+          "deliveryPath": "",
+          "education": "本科",
+          "educationCode": "",
+          "maxSalary": "",
+          "minSalary": "",
+          "positionId": 40911564605,
+          "positionName": "测试（全国多地有岗位）",
+          "positionNumber": "CCL1480117890J40911564605",
+          "positionUrl": "",
+          "positionWorkingExp": "1-3年",
+          "positionWorkingExpCode": "",
+          "propertyType": "",
+          "recruitNumber": 0,
+          "salary": "1.2-2.4万·14薪",
+          "salaryReal": "",
+          "workType": "全职"
+        },
+        "desc": {
+          "description": "岗位职责<ol> \n <li>参与云存储、分布式系统需求评审、测试方案设计、用例开发、缺陷闭环，负责功能、性能、可靠性、DFX 专项测试</li> \n <li>开发自动化测试脚本、搭建 / 维护自动化测试框架与平台，接入 CI 流水线，持续提升测试覆盖率与执行效率</li> \n <li>定位系统疑难问题，输出根因分析，推动开发修复；沉淀测试工具、脚本、经验库</li> \n <li>持续优化测试流程，落地质量指标，保障版本交付质量</li> \n</ol>任职要求<ol> \n <li>熟练 Python，会 Java / Go / C++ 任意一种优先；熟悉自动化框架、CI/CD</li> \n <li>掌握测试基础理论，能独立做测试方案、专项测试（性能、稳定性）</li> \n <li>了解 Linux 常用命令、网络 TCP/IP、进程线程；懂分布式、存储、虚拟化、数据库其一优先</li> \n <li>良好的问题排查、沟通能力</li></ol>",
+          "descriptionHighlight": "",
+          "highlightLabels": [],
+          "labels": [
+            "Java",
+            "Python",
+            "Shell",
+            "Golang",
+            "C/C++"
+          ],
+          "performanceBonus": "",
+          "welfareLabel": [],
+          "welfareTags": []
+        },
+        "workLocation": {
+          "address": "工作地点：滨江区 · 长河",
+          "addressType": 0,
+          "latitude": "30.18386608894445",
+          "longitude": "120.20591231229577",
+          "positionCityDistrict": "",
+          "positionCityDistrictCode": "",
+          "positionCityId": "653",
+          "positionWorkCity": "",
+          "showMap": true,
+          "showMultiAddressesTip": "",
+          "staticMapUrl": "https://storage-public.zhaopin.cn/job/share/1793695027448331075/b696282e05a341a0a19c190988eb2758",
+          "streetName": "",
+          "tradingArea": "",
+          "travelMode": "bus",
+          "verifyTheTruthUrl": "",
+          "workAddress": "滨江华为技术有限公司杭州研究所11"
+        },
+        "jobType": {
+          "jobType": "",
+          "jobTypeLevel": "20000100000000",
+          "jobTypeLevelName": "",
+          "subJobType": "",
+          "subJobTypeLevel": "20000100030000",
+          "subJobTypeLevelName": ""
+        },
+        "date": {
+          "dateEnd": "",
+          "dateStart": "",
+          "firstPublishTime": "",
+          "positionPublishTime": "",
+          "positionUpdateTime": "",
+          "positionUpdateTimeText": "今日发布"
+        }
+      },
+      "staff": {
+        "activityLevel": [
+          "3分钟前回复",
+          "今日回复50+次",
+          "高回复率"
+        ],
+        "auditNaturePrompt": null,
+        "authenticationState": 0,
+        "avatar": "https://storage-public.zhaopin.cn/user/avatar/1791789260775048329/Isp2CormHRKHiyHcac2e42ae26cf6373e05247697f9edf3a.jpg?x-oss-process=image/resize,l_240/rotate,0",
+        "companyName": "外企德科数字技术有限公司",
+        "goldMedalInterviewer": null,
+        "greeting": "",
+        "greetingHasDelivery": "",
+        "hrJob": "人事经理",
+        "hrOnlineIocState": 1,
+        "hrOnlineState": "",
+        "hrResumeOperationState": "",
+        "hrStateInfo": "",
+        "id": 1267627142,
+        "lastOnlineTime": 0,
+        "lastOnlineTimeText": "",
+        "modularState": 1,
+        "other": {
+          "freeTag": null,
+          "tagUrl": ""
+        },
+        "positionDetailStaffQuickReply": null,
+        "staffName": "刘女士"
+      },
+      "company": {
+        "base": null,
+        "companyAuditNature": null,
+        "companyComment": null,
+        "companyInterview": null,
+        "jumpDetail": null,
+        "orgBestRanking": null,
+        "orgReliableCompany": null,
+        "other": null,
+        "state": null
+      }
+    }
+  },
+  {
+    "name": "Java",
+    "number": "CCL1492072710J40975801908",
+    "jobId": 40975801908,
+    "salary60": "1.1-1.2万",
+    "salaryReal": "11001-12000",
+    "companyName": "杭州银兴惠丰科技有限公司",
+    "workCity": "杭州",
+    "cityDistrict": "滨江",
+    "streetName": "长河",
+    "workingExp": "1-3年",
+    "education": "本科",
+    "industryName": "新能源/燃油整车研发制造",
+    "companySize": "100-299人",
+    "financingStage": null,
+    "welfareLabel": [],
+    "jobSkillTags": [
+      {
+        "id": 19296888,
+        "name": "JavaScript",
+        "standard": false
+      }
+    ],
+    "commercialLabel": [
+      {
+        "labelDescription": null,
+        "type": 24,
+        "typeName": "新发布",
+        "typeShowLabel": "https://img09.zhaopin.com/2012/other/mobile/capp/position/ui24/tag_JD_waipai.png?w=48&h=48&r=3"
+      }
+    ],
+    "publishTime": "2026-11-20 13:29:00",
+    "positionUrl": "https://www.zhaopin.com/jobdetail/CCL1492072710J40975801908.htm",
+    "jobDescription": "岗位：Java地点：数智恒生中心C座工作职责1、负责产品、项目软件开发工作，保证产品和项目开发进度和目标的实现；2、确保开发质量和效率，保质保量",
+    "jobSummary": "",
+    "labels": null,
+    "topLabel": null,
+    "cardCustomJson": "{\"address\":\"杭州 滨江 长河\",\"companyName\":\"杭州银兴惠丰\",\"locationType\":\"5\",\"publishNew\":1,\"salary60\":\"1.1-1.2万\"}",
+    "skillLabel": [
+      {
+        "state": 0,
+        "value": "JavaScript"
+      }
+    ],
+    "jobDetailData": {
+      "position": {
+        "base": {
+          "deliveryPath": "",
+          "education": "本科",
+          "educationCode": "",
+          "maxSalary": "",
+          "minSalary": "",
+          "positionId": 40975801908,
+          "positionName": "Java",
+          "positionNumber": "CCL1492072710J40975801908",
+          "positionUrl": "",
+          "positionWorkingExp": "1-3年",
+          "positionWorkingExpCode": "",
+          "propertyType": "",
+          "recruitNumber": 0,
+          "salary": "1.1-1.2万",
+          "salaryReal": "",
+          "workType": "全职"
+        },
+        "desc": {
+          "description": "岗位：Java\n地点：数智恒生中心C座\n工作职责\n1、负责产品、项目软件开发工作，保证产品和项目开发进度和目标的实现；\n2、确保开发质量和效率，保质保量完成分配的开发任务；\n3、负责和需求、实施、测试等部门沟通，确保开发任务的完成；\n4、配合实施处理项目上的生产问题和日常运维工作。\n任职资格\n1.2年以上开发经验\n2.熟练掌握java语言，具备相关项目开发经历\n3.熟悉redis、Springboot等",
+          "descriptionHighlight": "",
+          "highlightLabels": [],
+          "labels": [
+            "JavaScript",
+            "银行"
+          ],
+          "performanceBonus": "",
+          "welfareLabel": [],
+          "welfareTags": []
+        },
+        "workLocation": {
+          "address": "工作地点：滨江区 · 长河",
+          "addressType": 0,
+          "latitude": "30.191737208091862",
+          "longitude": "120.18584603890191",
+          "positionCityDistrict": "",
+          "positionCityDistrictCode": "",
+          "positionCityId": "653",
+          "positionWorkCity": "",
+          "showMap": true,
+          "showMultiAddressesTip": "",
+          "staticMapUrl": "https://storage-public.zhaopin.cn/job/share/1791771079225945395/0ede46bc4f3c4c9bacb444f669844101",
+          "streetName": "",
+          "tradingArea": "",
+          "travelMode": "bus",
+          "verifyTheTruthUrl": "",
+          "workAddress": "杭州滨江数智恒生中心"
+        },
+        "jobType": {
+          "jobType": "",
+          "jobTypeLevel": "9000300000000",
+          "jobTypeLevelName": "",
+          "subJobType": "",
+          "subJobTypeLevel": "9000300110000",
+          "subJobTypeLevelName": ""
+        },
+        "date": {
+          "dateEnd": "",
+          "dateStart": "",
+          "firstPublishTime": "",
+          "positionPublishTime": "",
+          "positionUpdateTime": "",
+          "positionUpdateTimeText": "今日发布"
+        }
+      },
+      "staff": {
+        "activityLevel": [
+          "今日回复50+次"
+        ],
+        "auditNaturePrompt": null,
+        "authenticationState": 0,
+        "avatar": "https://storage-public.zhaopin.cn/zp/clouddisk/1771900457683718776/1cb61361-05a5-47ec-985a-488c8461e689.png?x-oss-process=image/resize,l_240/rotate,0",
+        "companyName": "杭州银兴惠丰科技有限公司",
+        "goldMedalInterviewer": null,
+        "greeting": "",
+        "greetingHasDelivery": "",
+        "hrJob": "招聘主管",
+        "hrOnlineIocState": 1,
+        "hrOnlineState": "",
+        "hrResumeOperationState": "",
+        "hrStateInfo": "",
+        "id": 1250935438,
+        "lastOnlineTime": 0,
+        "lastOnlineTimeText": "",
+        "modularState": 1,
+        "other": {
+          "freeTag": null,
+          "tagUrl": ""
+        },
+        "positionDetailStaffQuickReply": null,
+        "staffName": "刘女士"
+      },
+      "company": {
+        "base": null,
+        "companyAuditNature": null,
+        "companyComment": null,
+        "companyInterview": null,
+        "jumpDetail": null,
+        "orgBestRanking": null,
+        "orgReliableCompany": null,
+        "other": null,
+        "state": null
+      }
+    }
+  },
+  {
+    "name": "全栈工程师",
+    "number": "CCL1342438610J40812175406",
+    "jobId": 40812175406,
+    "salary60": "1000元以下",
+    "salaryReal": "0-1000",
+    "companyName": "康龙化成(成都)临床研究服务有限公司",
+    "workCity": "杭州",
+    "cityDistrict": "",
+    "streetName": "长河",
+    "workingExp": "1-3年",
+    "education": "学历不限",
+    "industryName": "医药研发/生产外包（CXO）",
+    "companySize": "1000-9999人",
+    "financingStage": null,
+    "welfareLabel": [],
+    "jobSkillTags": [],
+    "commercialLabel": [
+      {
+        "labelDescription": null,
+        "type": 24,
+        "typeName": "新发布",
+        "typeShowLabel": "https://img09.zhaopin.com/2012/other/mobile/capp/position/ui24/tag_JD_waipai.png?w=48&h=48&r=3"
+      }
+    ],
+    "publishTime": "2026-11-20 10:28:22",
+    "positionUrl": "https://www.zhaopin.com/jobdetail/CCL1342438610J40812175406.htm",
+    "jobDescription": "岗位内容：1.负责开发和维护Web应用程序、移动端和PC端的软件系统等相关项目。2.参与系统架构设计和关键技术选型，优化系统性能和稳定性。3.配合",
+    "jobSummary": "",
+    "labels": null,
+    "topLabel": null,
+    "cardCustomJson": "{\"address\":\"杭州 长河\",\"companyName\":\"康龙化成(成都)临床研究服务\",\"locationType\":\"5\",\"publishNew\":1,\"salary60\":\"1000元以下\"}",
+    "skillLabel": [],
+    "jobDetailData": {
+      "position": {
+        "base": {
+          "deliveryPath": "",
+          "education": "学历不限",
+          "educationCode": "",
+          "maxSalary": "",
+          "minSalary": "",
+          "positionId": 40812175406,
+          "positionName": "全栈工程师",
+          "positionNumber": "CCL1342438610J40812175406",
+          "positionUrl": "",
+          "positionWorkingExp": "1-3年",
+          "positionWorkingExpCode": "",
+          "propertyType": "",
+          "recruitNumber": 0,
+          "salary": "1000元以下",
+          "salaryReal": "",
+          "workType": "全职"
+        },
+        "desc": {
+          "description": "岗位内容： 1. 负责开发和维护 Web 应用程序、移动端和 PC 端的软件系统等相关项目。 2. 参与系统架构设计和关键技术选型，优化系统性能和稳定性。 3. 配合测试人员进行系统测试和用户验收，修复存在的缺陷和问题。 4. 支持相关业务团队进行数据处理和分析，提供技术支持和解决方案。 任职要求： 1. 良好的计算机基础知识和编程能力，熟悉 Java、Python、JavaScript 等面向对象编程语言。 2. 熟悉常见的 Web 后端开发框架和数据库相关知识。 3. 具备良好的文档撰写和阅读能力，能够快速理解和借鉴技术方案。 4. 加强学习能力和团队协作精神，积极主动地处理工作中遇到的难题，具备创新精神和对未知领域的探索欲望。",
+          "descriptionHighlight": "",
+          "highlightLabels": [],
+          "labels": [
+            "云计算"
+          ],
+          "performanceBonus": "",
+          "welfareLabel": [],
+          "welfareTags": []
+        },
+        "workLocation": {
+          "address": "工作地点：杭州 · 长河",
+          "addressType": 0,
+          "latitude": "30.189164",
+          "longitude": "120.182109",
+          "positionCityDistrict": "",
+          "positionCityDistrictCode": "",
+          "positionCityId": "653",
+          "positionWorkCity": "",
+          "showMap": true,
+          "showMultiAddressesTip": "",
+          "staticMapUrl": "https://storage-public.zhaopin.cn/job/share/1795141703984914301/4305502dad66464aaea3358d8e75ab17",
+          "streetName": "",
+          "tradingArea": "",
+          "travelMode": "bus",
+          "verifyTheTruthUrl": "",
+          "workAddress": "浙江省杭州市滨江区长河街道滨兴路"
+        },
+        "jobType": {
+          "jobType": "",
+          "jobTypeLevel": "9000300000000",
+          "jobTypeLevelName": "",
+          "subJobType": "",
+          "subJobTypeLevel": "9000300290000",
+          "subJobTypeLevelName": ""
+        },
+        "date": {
+          "dateEnd": "",
+          "dateStart": "",
+          "firstPublishTime": "",
+          "positionPublishTime": "",
+          "positionUpdateTime": "",
+          "positionUpdateTimeText": "今日发布"
+        }
+      },
+      "staff": {
+        "activityLevel": [],
+        "auditNaturePrompt": null,
+        "authenticationState": 0,
+        "avatar": "https://storage-public.zhaopin.cn/zp/clouddisk/1771900444575018357/ee67ac6c-a8f8-4018-9a56-9603e9821dde.png?x-oss-process=image/resize,l_240/rotate,0",
+        "companyName": "康龙化成(成都)临床研究服务有限公司",
+        "goldMedalInterviewer": null,
+        "greeting": "",
+        "greetingHasDelivery": "",
+        "hrJob": "人事经理",
+        "hrOnlineIocState": 1,
+        "hrOnlineState": "",
+        "hrResumeOperationState": "",
+        "hrStateInfo": "",
+        "id": 1270028460,
+        "lastOnlineTime": 0,
+        "lastOnlineTimeText": "",
+        "modularState": 1,
+        "other": {
+          "freeTag": null,
+          "tagUrl": ""
+        },
+        "positionDetailStaffQuickReply": null,
+        "staffName": "刘媛"
+      },
+      "company": {
+        "base": null,
+        "companyAuditNature": null,
+        "companyComment": null,
+        "companyInterview": null,
+        "jumpDetail": null,
+        "orgBestRanking": null,
+        "orgReliableCompany": null,
+        "other": null,
+        "state": null
+      }
+    }
+  }
+]

@@ -132,17 +132,28 @@ def load_config(browser_type="chrome", platform=None):
     browser_cfg = cfg.get(browser_type, cfg.get("chrome", {})) # 兼容旧版 chrome 配置项
     output_cfg = cfg.get("output", {})
 
+    # 平台段（如 zhaopin:）可单独覆盖浏览器 / profile / 输出 / 端口。
+    # BOSS 没有 boss: 段，行为保持原样。
+    platform_cfg = cfg.get(platform)
+    if not isinstance(platform_cfg, dict):
+        platform_cfg = {}
+
     base_output = output_cfg.get("dir", "") or _default_output_dir()
     output_dir = os.path.join(base_output, platform)
+    platform_output = platform_cfg.get("output_dir", "")
+    if platform_output:
+        # 绝对路径直接用；相对路径基于项目根目录
+        output_dir = (platform_output if os.path.isabs(platform_output)
+                      else os.path.join(PROJECT_DIR, platform_output))
     try:
         os.makedirs(output_dir, exist_ok=True)
     except Exception:
         pass
 
-    browser_path = browser_cfg.get("path", "") or default_path
+    browser_path = platform_cfg.get("path", "") or browser_cfg.get("path", "") or default_path
 
     # BOSS 的登录态在 profiles/<browser>_profile 里，必须继续认老目录
-    explicit_profile = browser_cfg.get("profile_dir", "")
+    explicit_profile = platform_cfg.get("profile_dir", "") or browser_cfg.get("profile_dir", "")
     if explicit_profile:
         profile_dir = explicit_profile
     elif platform == DEFAULT_PLATFORM:
@@ -150,7 +161,12 @@ def load_config(browser_type="chrome", platform=None):
     else:
         profile_dir = os.path.join(PROJECT_DIR, "profiles", platform, browser_type)
 
-    port_file = os.path.join(PROJECT_DIR, f".cdp_port_{platform}_{browser_type}")
+    platform_port = platform_cfg.get("port_file", "")
+    if platform_port:
+        port_file = (platform_port if os.path.isabs(platform_port)
+                     else os.path.join(PROJECT_DIR, platform_port))
+    else:
+        port_file = os.path.join(PROJECT_DIR, f".cdp_port_{platform}_{browser_type}")
     port_files = [port_file]
     legacy_tracking = None
     if platform == DEFAULT_PLATFORM:
