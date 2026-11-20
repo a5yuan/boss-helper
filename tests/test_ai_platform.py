@@ -2,6 +2,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -92,6 +93,78 @@ class TestGreetingSaveByPlatform(unittest.TestCase):
         self.assertTrue(res["ok"])
         self.assertEqual(res["item"]["greeting"], "您好")
         self.assertEqual(saved["items"][0]["status"], "planned")
+
+
+class TestFillByPlatform(unittest.TestCase):
+    """批量填必须先读对平台的计划，读不到就报错，不能拿别的平台的计划执行。"""
+
+    def setUp(self):
+        server_app._ai_fills.clear()
+        server_app._latest_fill_id = None
+
+    def tearDown(self):
+        server_app._ai_fills.clear()
+        server_app._latest_fill_id = None
+
+    @staticmethod
+    def _plan(eid: str) -> dict:
+        return {"summary": {}, "items": [{
+            "encrypt_job_id": eid, "security_id": "", "title": eid,
+            "greeting": "您好", "status": "planned", "dispatch": "todo",
+        }]}
+
+    def _run_fill(self, root, body, dispatched):
+        def fake_dispatch(items, **kwargs):
+            dispatched.append(items)
+            return {"ok": 0, "failed": 0, "skipped": 0,
+                    "total": len(items), "outcomes": []}
+
+        with mock.patch.object(server_app, "get_config", side_effect=_fake_config(root)), \
+                mock.patch.object(server_app, "get_runtime") as runtime, \
+                mock.patch("src.ai.dispatch.dispatch", side_effect=fake_dispatch), \
+                mock.patch.object(server_app, "session") as sess:
+            runtime.return_value = mock.Mock(tracker=mock.Mock())
+            sess.running = False
+            sess.params.return_value = {}
+            res = server_app.api_ai_fill(body)
+            task_id = res.get("task_id")
+            if task_id:
+                for _ in range(100):
+                    state = server_app._fill_state(task_id)
+                    if state and state.get("finished"):
+                        break
+                    time.sleep(0.02)
+        return res
+
+    def test_reads_plan_from_requested_platform(self):
+        with tempfile.TemporaryDirectory() as root:
+            _write_json(os.path.join(root, "boss", "ai_plan_x.json"), self._plan("e-boss"))
+            _write_json(os.path.join(root, "fake2", "ai_plan_x.json"), self._plan("e-fake2"))
+            dispatched = []
+            res = self._run_fill(root, server_app.AiFillBody(file="jobs_x.json", platform="fake2"),
+                                 dispatched)
+        self.assertTrue(res["ok"])
+        self.assertEqual([it["encrypt_job_id"] for it in dispatched[0]], ["e-fake2"])
+
+    def test_missing_platform_plan_reports_error_without_using_default(self):
+        with tempfile.TemporaryDirectory() as root:
+            _write_json(os.path.join(root, "boss", "ai_plan_x.json"), self._plan("e-boss"))
+            dispatched = []
+            res = self._run_fill(root, server_app.AiFillBody(file="jobs_x.json", platform="fake2"),
+                                 dispatched)
+        self.assertFalse(res["ok"])
+        self.assertIn("计划文件不存在", res["error"])
+        self.assertIn("fake2", res["error"])
+        self.assertEqual(dispatched, [])
+
+    def test_default_platform_still_reads_boss_plan(self):
+        with tempfile.TemporaryDirectory() as root:
+            _write_json(os.path.join(root, "boss", "ai_plan_x.json"), self._plan("e-boss"))
+            _write_json(os.path.join(root, "fake2", "ai_plan_x.json"), self._plan("e-fake2"))
+            dispatched = []
+            res = self._run_fill(root, server_app.AiFillBody(file="jobs_x.json"), dispatched)
+        self.assertTrue(res["ok"])
+        self.assertEqual([it["encrypt_job_id"] for it in dispatched[0]], ["e-boss"])
 
 
 if __name__ == "__main__":

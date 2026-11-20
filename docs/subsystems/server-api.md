@@ -64,7 +64,7 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | GET | `/api/ai/plan` | 读某个采集文件对应的 AI 计划（`exists=false` 表示还没筛过）；`platform` 指定平台输出目录 |
 | POST | `/api/ai/screen` | 跑 AI 筛选并生成 `ai_plan_*.json`（采集运行中拒绝）；`platform` 同上 |
 | POST | `/api/ai/greeting` | 保存单条招呼语的编辑；`platform` 同上 |
-| POST | `/api/ai/fill` | 后台线程批量填充（点沟通 + 填字，不发送），返回 `task_id` |
+| POST | `/api/ai/fill` | 后台线程批量填充（点沟通 + 填字，不发送），返回 `task_id`；`platform` 指定平台，缺省默认平台 |
 | GET | `/api/ai/fill/status` | 批量填充进度与日志；可用 `task_id`，缺省为最近一次 |
 | GET / DELETE | `/__debug_log` | 调试日志读写 |
 | GET / POST | `/api/debug/*` | 调试开关、scope、面板 |

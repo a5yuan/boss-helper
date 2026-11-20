@@ -743,8 +743,9 @@ def api_ai_fill(body: AiFillBody):
         return {"ok": False, "error": "批量填充已在运行"}
     from src.ai.dispatch import dispatch
     from src.ai.pipeline import load_plan, save_plan
+    platform = (body.platform or "").strip() or DEFAULT_PLATFORM
     try:
-        path = _ai_plan_path(body.file)
+        path = _ai_plan_path(body.file, platform)
         plan = load_plan(path)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
@@ -772,7 +773,6 @@ def api_ai_fill(body: AiFillBody):
             gap = (body.gap_min, body.gap_max) if (body.gap_min and body.gap_max) else None
             params = session.params() or {}
             bt = body.browser_type or params.get("browser_type") or "chrome"
-            platform = body.platform or params.get("site") or DEFAULT_PLATFORM
             runtime = get_runtime(platform, bt)
             stats = dispatch(items, browser_type=bt, gap=gap, on_event=_log,
                              tracker=runtime.tracker, platform=platform)
