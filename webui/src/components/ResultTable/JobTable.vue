@@ -9,6 +9,8 @@ import { GlassTag, GlassCheckbox } from "@/ui";
 import { tracer } from "@/utils/tracer";
 import type { Job } from "@/api";
 
+const engine = useEngine();
+
 // ============================================================================
 // 列定义
 // ============================================================================
@@ -26,6 +28,8 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "title",       title: "职位",    defaultWidth: 240, minWidth: 120, defaultVisible: true, sortKey: (j) => j.title ?? "" },
+  // 仅在多任务时出现；render 统一走平台显示名
+  { key: "platform",    title: "平台",    defaultWidth: 96,  minWidth: 60,  defaultVisible: true, sortKey: (j) => j.platform ?? "", render: (j) => engine.platformLabel(j.platform || engine.params.site) },
   { key: "company",     title: "公司",    defaultWidth: 180, minWidth: 100, defaultVisible: true, sortKey: (j) => j.company ?? "" },
   { key: "salary",      title: "薪资",    defaultWidth: 120, minWidth: 80,  defaultVisible: true, sortKey: (j) => parseSalary(j.salary)?.[0] ?? null },
   { key: "location",    title: "城市",    defaultWidth: 100, minWidth: 70,  defaultVisible: true, sortKey: (j) => j.location ?? "" },
@@ -61,7 +65,6 @@ function parseSalary(text?: string): [number, number] | null {
 // ============================================================================
 const props = defineProps<{ jobs: Job[] }>();
 const emit = defineEmits<{ (e: "select", j: Job): void }>();
-const engine = useEngine();
 
 // 追踪 props.jobs 长度变化
 watch(
@@ -143,7 +146,16 @@ watch(
   { deep: true }
 );
 
-const visibleColumnList = computed(() => COLUMNS.filter((c) => visibleCols.value[c.key]));
+// 平台列只在多任务时出现，列设置里也同步隐藏
+const showPlatformColumn = computed(() => engine.multiTask);
+const visibleColumnList = computed(() =>
+  COLUMNS.filter(
+    (c) => visibleCols.value[c.key] && (c.key !== "platform" || showPlatformColumn.value)
+  )
+);
+const configurableColumns = computed(() =>
+  COLUMNS.filter((c) => c.key !== "platform" || showPlatformColumn.value)
+);
 
 // ============================================================================
 // 列宽拖拽（指令式自写，避免引入重型库）
@@ -371,7 +383,7 @@ function clearAllCols() {
             </div>
             <div class="max-h-60 overflow-y-auto flex flex-col gap-2 scrollbar-thin">
               <label
-                v-for="c in COLUMNS"
+                v-for="c in configurableColumns"
                 :key="'vis-' + c.key"
                 class="flex items-center gap-2.5 text-xs text-fg-muted hover:text-fg cursor-pointer select-none transition-colors"
               >

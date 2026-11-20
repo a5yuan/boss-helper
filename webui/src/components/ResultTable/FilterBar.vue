@@ -50,10 +50,26 @@ const fileOptions = computed(() =>
   engine.resultFiles.map((f) => ({ label: f, value: f }))
 );
 function onFileChange(v: string) {
-  engine.loadResults(v.replace("jobs_", "").replace(".json", ""));
+  engine.loadResults(engine.params.site, v.replace("jobs_", "").replace(".json", ""));
 }
 function refresh() {
-  engine.loadResults();
+  engine.loadResults(engine.params.site);
+}
+
+// 多任务时的平台筛选：只列有任务的平台，按 taskOrder 去重
+const platformOptions = computed(() => {
+  const seen = new Set<string>();
+  const options: { label: string; value: string }[] = [];
+  for (const id of engine.taskOrder) {
+    const task = engine.tasks[id];
+    if (!task || seen.has(task.platform)) continue;
+    seen.add(task.platform);
+    options.push({ label: engine.platformLabel(task.platform), value: task.platform });
+  }
+  return options;
+});
+function onPlatformChange(v: string) {
+  engine.selectPlatform(v);
 }
 
 // BOSS 直聘薪资标准档位（多选列表）
@@ -70,6 +86,14 @@ const chipsExpanded = ref(false);
     <span class="text-[11px] text-fg-subtle">
       {{ props.filteredCount }} / {{ props.totalCount }} 条
     </span>
+
+    <div v-if="engine.multiTask" data-platform-filter class="w-32 shrink-0">
+      <GlassSelect
+        :model-value="engine.params.site"
+        :options="platformOptions"
+        @update:model-value="onPlatformChange"
+      />
+    </div>
 
     <div v-if="engine.resultFiles.length" class="min-w-52 max-w-80 w-auto">
       <GlassSelect
