@@ -5,6 +5,7 @@ import { useTheme } from "@/ui/theme";
 import ConfigPanel from "@/components/ConfigPanel.vue";
 import CollapsedConfigPanel from "@/components/CollapsedConfigPanel.vue";
 import ControlBar from "@/components/ControlBar.vue";
+import TaskTabs from "@/components/TaskTabs.vue";
 import LogConsole from "@/components/LogConsole.vue";
 import ResultTable from "@/components/ResultTable";
 import ActionDialog from "@/components/ActionDialog.vue";
@@ -68,8 +69,8 @@ const onExpand = () => {
 
 onMounted(async () => {
   await engine.loadConfig();
+  await engine.loadPlatforms();
   engine.connectWs();
-  if (engine.running) engine.state = "running";
   leftPanelWidth.value = getDefaultWidthPx();
   
   const completed = localStorage.getItem("boss-helper:onboarding-completed");
@@ -151,6 +152,7 @@ onMounted(async () => {
             class="flex flex-col min-w-0 overflow-hidden flex-1 min-h-0"
             :class="engine.isFullscreen ? 'p-1.5 gap-0' : 'p-4 gap-4'"
           >
+            <TaskTabs v-if="!engine.isFullscreen" />
             <ControlBar v-if="!engine.isFullscreen" v-model:tab="tab" />
 
             <div class="flex-1 min-h-0 flex flex-col">

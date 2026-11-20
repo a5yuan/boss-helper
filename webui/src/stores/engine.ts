@@ -1,6 +1,13 @@
 import { defineStore } from "pinia";
 import { watch } from "vue";
-import { api, type City, type EngineConfig, type Job, type StartParams } from "@/api";
+import {
+  api,
+  type City,
+  type EngineConfig,
+  type Job,
+  type PlatformInfo,
+  type StartParams,
+} from "@/api";
 import { tracer } from "@/utils/tracer";
 import { useSound } from "@/composables/useSound";
 
@@ -24,6 +31,8 @@ export interface LogEntry {
   id: number;
   level: string;
   msg: string;
+  taskId?: string;
+  platform?: string;
 }
 
 export interface PendingAction {
@@ -40,9 +49,10 @@ export type EngineState =
   | "stopped"
   | "error";
 
-interface State {
-  config: EngineConfig | null;
-  params: StartParams;
+/** 单个任务的完整状态。界面上的「当前任务」只是其中一个。 */
+export interface TaskState {
+  taskId: string;
+  platform: string;
   state: EngineState;
   running: boolean;
   progress: { done: number; total: number; stats: Record<string, number> };
@@ -51,15 +61,78 @@ interface State {
   jobs: Job[];
   resultFiles: string[];
   currentFile: string | null;
-  wsConnected: boolean;
   errorMsg: string;
-  cities: City[];
-  citiesRefreshing: boolean;
   stopping: boolean;
   pausing: boolean;
-  isFullscreen: boolean; // 新增全屏状态
   seamlessMode: boolean;
+}
+
+/** 没有对应任务时，结果先按平台寄存在这里。 */
+export interface DetachedResults {
+  jobs: Job[];
+  resultFiles: string[];
+  currentFile: string | null;
+}
+
+interface State {
+  config: EngineConfig | null;
+  params: StartParams;
+  tasks: Record<string, TaskState>;
+  taskOrder: string[];
+  activeTaskId: string | null;
+  platforms: PlatformInfo[];
+  detachedResults: Record<string, DetachedResults>;
+  cities: City[];
+  citiesRefreshing: boolean;
+  isFullscreen: boolean; // 新增全屏状态
   initialized: boolean;
+  // WS 是全局连接，不是任务级状态；对外仍以只读 getter 暴露
+  _wsConnected: boolean;
+  // 没有任务承载时（例如启动校验失败）的提示
+  _startError: string;
+}
+
+const EMPTY_PROGRESS = { done: 0, total: 0, stats: {} as Record<string, number> };
+const TERMINAL_STATES = ["done", "stopped", "error", "idle"];
+
+function createTaskState(taskId: string, platform: string): TaskState {
+  return {
+    taskId,
+    platform,
+    state: "idle",
+    running: false,
+    progress: { done: 0, total: 0, stats: {} },
+    logs: [],
+    pendingAction: null,
+    jobs: [],
+    resultFiles: [],
+    currentFile: null,
+    errorMsg: "",
+    stopping: false,
+    pausing: false,
+    seamlessMode: false,
+  };
+}
+
+/** 某平台最新的任务（taskOrder 末尾优先），没有返回 null。 */
+function latestTaskFor(s: State, platform: string): TaskState | null {
+  for (let i = s.taskOrder.length - 1; i >= 0; i--) {
+    const t = s.tasks[s.taskOrder[i]];
+    if (t && t.platform === platform) return t;
+  }
+  return null;
+}
+
+/**
+ * 当前查看的任务：
+ * 1. activeTaskId 指向的任务且平台与 params.site 一致；
+ * 2. 否则取 taskOrder 里最后一个同平台任务；
+ * 3. 都没有就是 null。
+ */
+function pickActiveTask(s: State): TaskState | null {
+  const pinned = s.activeTaskId ? s.tasks[s.activeTaskId] : null;
+  if (pinned && pinned.platform === s.params.site) return pinned;
+  return latestTaskFor(s, s.params.site);
 }
 
 let logSeq = 0;
@@ -83,6 +156,7 @@ export const useEngine = defineStore("engine", {
     config: null,
     params: {
       count: 20,
+      site: "",
       browser_type: "chrome",
       safe_mode: true,
       fast: false,
@@ -102,31 +176,86 @@ export const useEngine = defineStore("engine", {
       experience: [],
       salary_fuzzy: false,
     },
-    state: "idle",
-    running: false,
-    progress: { done: 0, total: 0, stats: {} },
-    logs: [],
-    pendingAction: null,
-    jobs: [],
-    resultFiles: [],
-    currentFile: null,
-    wsConnected: false,
-    errorMsg: "",
+    tasks: {},
+    taskOrder: [],
+    activeTaskId: null,
+    platforms: [],
+    detachedResults: {},
     cities: [],
     citiesRefreshing: false,
-    stopping: false,
-    pausing: false,
     isFullscreen: false,
-    seamlessMode: false,
     initialized: false,
+    _wsConnected: false,
+    _startError: "",
   }),
 
   getters: {
-    percent(s): number {
-      if (!s.progress.total) return 0;
-      return Math.min(100, Math.round((s.progress.done / s.progress.total) * 100));
+    // ── 任务选择 ──────────────────────────────────────────────────────────
+    activeTask: (s): TaskState | null => pickActiveTask(s),
+    multiTask: (s): boolean => s.taskOrder.length > 1,
+    anyRunning: (s): boolean =>
+      s.taskOrder.some((id) => !!s.tasks[id]?.running),
+
+    // ── 兼容旧组件的只读投影（全部来自当前任务，没有时给原来的初始值） ──
+    state(): EngineState {
+      return this.activeTask?.state ?? "idle";
     },
-    statusLabel(s): string {
+    running(): boolean {
+      return this.activeTask?.running ?? false;
+    },
+    selectedRunning(): boolean {
+      return this.activeTask?.running ?? false;
+    },
+    progress(): { done: number; total: number; stats: Record<string, number> } {
+      return this.activeTask?.progress ?? EMPTY_PROGRESS;
+    },
+    logs(): LogEntry[] {
+      return this.activeTask?.logs ?? [];
+    },
+    pendingAction(): PendingAction | null {
+      return this.activeTask?.pendingAction ?? null;
+    },
+    jobs(): Job[] {
+      return (
+        this.activeTask?.jobs ??
+        this.detachedResults[this.params.site]?.jobs ??
+        []
+      );
+    },
+    resultFiles(): string[] {
+      return (
+        this.activeTask?.resultFiles ??
+        this.detachedResults[this.params.site]?.resultFiles ??
+        []
+      );
+    },
+    currentFile(): string | null {
+      return (
+        this.activeTask?.currentFile ??
+        this.detachedResults[this.params.site]?.currentFile ??
+        null
+      );
+    },
+    errorMsg(): string {
+      return this._startError || this.activeTask?.errorMsg || "";
+    },
+    stopping(): boolean {
+      return this.activeTask?.stopping ?? false;
+    },
+    pausing(): boolean {
+      return this.activeTask?.pausing ?? false;
+    },
+    seamlessMode(): boolean {
+      return this.activeTask?.seamlessMode ?? false;
+    },
+    wsConnected(): boolean {
+      return this._wsConnected;
+    },
+    percent(): number {
+      if (!this.progress.total) return 0;
+      return Math.min(100, Math.round((this.progress.done / this.progress.total) * 100));
+    },
+    statusLabel(): string {
       return (
         {
           idle: "空闲",
@@ -137,25 +266,124 @@ export const useEngine = defineStore("engine", {
           stopped: "已停止",
           error: "出错",
         } as Record<string, string>
-      )[s.state] || s.state;
+      )[this.state] || this.state;
     },
-    canStart(s): boolean {
-      if (!s.config) return false;
-      if (s.params.keyword_search) return !!(s.params.query || "").trim();
+    canStart(): boolean {
+      if (!this.config) return false;
+      if (this.params.keyword_search) return !!(this.params.query || "").trim();
       return true;
     },
   },
 
   actions: {
-    pushLog(level: string, msg: string) {
-      this.logs.push({ id: ++logSeq, level, msg });
-      if (this.logs.length > 2000) this.logs.splice(0, this.logs.length - 2000);
+    // ── 平台 / 任务选择 ──────────────────────────────────────────────────
+    async loadPlatforms() {
+      try {
+        const r = await api.getPlatforms();
+        this.platforms = r.platforms || [];
+        if (!this.params.site || !this.platforms.some((p) => p.name === this.params.site)) {
+          this.params.site = this.platforms[0]?.name ?? "";
+        }
+      } catch (e) {
+        this.pushLog("error", `加载平台列表失败: ${e}`);
+      }
     },
 
+    platformLabel(platform: string): string {
+      const hit = this.platforms.find((p) => p.name === platform);
+      return hit?.display_name || platform;
+    },
+
+    taskFor(platform: string): TaskState | null {
+      return latestTaskFor(this, platform);
+    },
+
+    /**
+     * 确保 taskId 对应的任务存在。新建时如果当前平台没有任务，就顺手把视图切过去，
+     * 避免刷新后标签栏显示任务、面板却停在空闲状态；当前平台已有任务则不抢焦点。
+     */
+    ensureTask(taskId: string, platform: string): TaskState {
+      if (!this.tasks[taskId]) {
+        const hadForSite = latestTaskFor(this, this.params.site);
+        this.tasks[taskId] = createTaskState(taskId, platform);
+        this.taskOrder.push(taskId);
+        if (!hadForSite) {
+          this.params.site = platform;
+          this.activeTaskId = taskId;
+        }
+      }
+      return this.tasks[taskId];
+    },
+
+    selectTask(taskId: string) {
+      const task = this.tasks[taskId];
+      if (!task) return;
+      this.activeTaskId = taskId;
+      this.params.site = task.platform;
+    },
+
+    selectPlatform(platform: string) {
+      this.params.site = platform;
+      const task = latestTaskFor(this, platform);
+      this.activeTaskId = task ? task.taskId : null;
+    },
+
+    /** 关闭一个已结束任务；结果留在 detachedResults，视图跟着剩余任务走。 */
+    closeTask(taskId: string) {
+      const task = this.tasks[taskId];
+      if (!task || task.running) return;
+
+      delete this.tasks[taskId];
+      this.taskOrder = this.taskOrder.filter((id) => id !== taskId);
+
+      if (this.activeTaskId === taskId) this.activeTaskId = null;
+
+      if (this.taskOrder.length) {
+        // 当前平台已经没有任务了：把视图切到最后一个剩余任务
+        if (!latestTaskFor(this, this.params.site)) {
+          const lastId = this.taskOrder[this.taskOrder.length - 1];
+          const last = this.tasks[lastId];
+          this.activeTaskId = lastId;
+          this.params.site = last.platform;
+        } else if (!this.activeTaskId) {
+          const siteTask = latestTaskFor(this, this.params.site);
+          if (siteTask) this.activeTaskId = siteTask.taskId;
+        }
+      } else {
+        this.activeTaskId = null;
+      }
+
+      // 关掉的任务结果不以任务形式留存，改存到平台名下
+      this.detachedResults[task.platform] = {
+        jobs: task.jobs,
+        resultFiles: task.resultFiles,
+        currentFile: task.currentFile,
+      };
+    },
+
+    // ── 日志 ─────────────────────────────────────────────────────────────
+    pushLog(level: string, msg: string, taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      if (!task) return;
+      task.logs.push({
+        id: ++logSeq,
+        level,
+        msg,
+        taskId: task.taskId,
+        platform: task.platform,
+      });
+      if (task.logs.length > 2000) task.logs.splice(0, task.logs.length - 2000);
+    },
+
+    clearLogs(taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      if (task) task.logs = [];
+    },
+
+    // ── 配置 / 参数 ──────────────────────────────────────────────────────
     async loadConfig() {
       try {
         this.config = await api.getConfig(this.params.browser_type);
-        this.running = this.config.running;
         if (!this.initialized) {
           const saved = await api.getStartParams();
           if (saved && typeof saved === "object") {
@@ -177,39 +405,50 @@ export const useEngine = defineStore("engine", {
     },
 
     async start() {
+      const platform = this.params.site;
       if (this.params.keyword_search && !(this.params.query || "").trim()) {
-        this.errorMsg = "请先输入搜索关键词";
+        this._startError = "请先输入搜索关键词";
         return;
       }
-      this.errorMsg = "";
-      this.logs = [];
-      this.progress = { done: 0, total: this.params.count, stats: {} };
+      this._startError = "";
       tracer.startScope("start-collection");
       tracer.log({ layer: "FE-ACTION", fn: "engine:start", msg: "用户点击启动", scope: "start-collection", data: {
+        platform,
         query: this.params.query,
         city: this.params.city_name,
         count: this.params.count,
       }});
       try {
         const r = await api.start(this.params);
-        if (!r.ok) {
-          this.errorMsg = r.error || "启动失败";
-          this.pushLog("error", this.errorMsg);
-          tracer.log({ layer: "FE-ACTION", fn: "engine:start", msg: "启动失败", data: { error: this.errorMsg }, scope: "start-collection" });
+        if (!r.ok || !r.task_id) {
+          this._startError = r.error || "启动失败";
+          this.pushLog("error", this._startError, this.taskFor(platform)?.taskId);
+          tracer.log({ layer: "FE-ACTION", fn: "engine:start", msg: "启动失败", data: { error: this._startError }, scope: "start-collection" });
           tracer.endScope("start-collection");
           return;
         }
+
+        // 新任务取代同平台上一个已结束任务，避免标签栏出现同一平台两条
+        for (const id of [...this.taskOrder]) {
+          if (this.tasks[id]?.platform === platform) delete this.tasks[id];
+        }
+        this.taskOrder = this.taskOrder.filter((id) => !!this.tasks[id]);
+
+        const task = this.ensureTask(r.task_id, platform);
+        task.state = "running";
+        task.running = true;
+        task.progress = { done: 0, total: this.params.count, stats: {} };
+        task.seamlessMode = false;
+        // 启动完成的任务就是新的查看目标
+        this.params.site = platform;
+        this.activeTaskId = r.task_id;
+        this.connectWs();
       } catch (e) {
-        this.errorMsg = `启动失败: ${e}`;
-        this.pushLog("error", this.errorMsg);
+        this._startError = `启动失败: ${e}`;
+        this.pushLog("error", this._startError, this.taskFor(platform)?.taskId);
         tracer.log({ layer: "FE-ACTION", fn: "engine:start", msg: "启动异常", data: { error: String(e) }, scope: "start-collection" });
         tracer.endScope("start-collection");
-        return;
       }
-      this.state = "running";
-      this.running = true;
-      this.seamlessMode = false;
-      this.connectWs();
     },
 
     async loadCities() {
@@ -263,29 +502,33 @@ export const useEngine = defineStore("engine", {
       }
     },
 
-    async stop() {
-      if (this.stopping) return;
-      this.stopping = true;
-      this.pushLog("warn", "已发送停止指令，等待当前条目收尾 ...");
+    // ── 任务控制（全部按 task_id 作用，缺省为当前任务） ──────────────────
+    async stop(taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      if (!task || task.stopping) return;
+      task.stopping = true;
+      this.pushLog("warn", "已发送停止指令，等待当前条目收尾 ...", task.taskId);
       tracer.startScope("stop-collection");
       tracer.log({ layer: "FE-ACTION", fn: "engine:stop", msg: "用户点击停止", scope: "stop-collection" });
       try {
-        await api.stop();
+        await api.stop(task.taskId);
       } catch (e) {
-        this.pushLog("error", `停止失败: ${e}`);
+        this.pushLog("error", `停止失败: ${e}`, task.taskId);
         tracer.log({ layer: "FE-ACTION", fn: "engine:stop", msg: "停止失败", data: { error: String(e) }, scope: "stop-collection" });
       }
       const started = Date.now();
       const poll = async () => {
-        if (!this.stopping) return;
+        const current = this.tasks[task.taskId];
+        if (!current || !current.stopping) return;
         if (Date.now() - started > 60000) {
-          this.finishStop();
+          this.finishStop(task.taskId);
           return;
         }
         try {
-          const s = await api.getStatus();
-          if (!s.running) {
-            this.finishStop();
+          const s = await api.getStatus(task.taskId);
+          // running 是全局字段，单任务是否结束只看它自己的 state
+          if (TERMINAL_STATES.includes(s.state)) {
+            this.finishStop(task.taskId);
             return;
           }
         } catch {
@@ -296,63 +539,73 @@ export const useEngine = defineStore("engine", {
       setTimeout(poll, 800);
     },
 
-    async pause() {
-      if (this.pausing || this.state !== "running") return;
-      this.pausing = true;
-      this.pushLog("warn", "已发送暂停指令 ...");
+    async pause(taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      if (!task || task.pausing || task.state !== "running") return;
+      task.pausing = true;
+      this.pushLog("warn", "已发送暂停指令 ...", task.taskId);
       tracer.startScope("pause-collection");
       tracer.log({ layer: "FE-ACTION", fn: "engine:pause", msg: "用户点击暂停", scope: "pause-collection" });
       try {
-        await api.pause();
+        await api.pause(task.taskId);
       } catch (e) {
-        this.pushLog("error", `暂停失败: ${e}`);
+        this.pushLog("error", `暂停失败: ${e}`, task.taskId);
         tracer.log({ layer: "FE-ACTION", fn: "engine:pause", msg: "暂停失败", data: { error: String(e) }, scope: "pause-collection" });
-        this.pausing = false;
+        task.pausing = false;
       }
     },
 
-    async resume() {
-      if (!this.pausing && this.state !== "paused") return;
-      this.pausing = false;
-      this.pushLog("info", "继续采集 ...");
+    async resume(taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      if (!task || (!task.pausing && task.state !== "paused")) return;
+      task.pausing = false;
+      this.pushLog("info", "继续采集 ...", task.taskId);
       tracer.startScope("resume-collection");
       tracer.log({ layer: "FE-ACTION", fn: "engine:resume", msg: "用户点击继续", scope: "resume-collection" });
       try {
-        await api.resume();
+        await api.resume(task.taskId);
       } catch (e) {
-        this.pushLog("error", `继续失败: ${e}`);
+        this.pushLog("error", `继续失败: ${e}`, task.taskId);
         tracer.log({ layer: "FE-ACTION", fn: "engine:resume", msg: "继续失败", data: { error: String(e) }, scope: "resume-collection" });
       }
     },
 
-    finishStop() {
-      this.stopping = false;
-      this.pausing = false;
-      this.running = false;
-      this.seamlessMode = false;
-      if (this.state === "running" || this.state === "waiting" || this.state === "paused") this.state = "stopped";
-      this.pendingAction = null;
+    finishStop(taskId: string) {
+      const task = this.tasks[taskId];
+      if (!task) return;
+      task.stopping = false;
+      task.pausing = false;
+      task.running = false;
+      task.seamlessMode = false;
+      if (task.state === "running" || task.state === "waiting" || task.state === "paused") {
+        task.state = "stopped";
+      }
+      task.pendingAction = null;
       tracer.endScope("stop-collection");
       tracer.endScope("start-collection");
       tracer.endScope("pause-collection");
       tracer.endScope("resume-collection");
-      this.loadResults();
+      this.loadResults(task.platform);
     },
 
-    async ack(payload = "") {
-      await api.ack(payload);
-      this.pendingAction = null;
-      if (this.running) this.state = "running";
+    async ack(payload = "", taskId?: string) {
+      const task = taskId ? this.tasks[taskId] : this.activeTask;
+      await api.ack(payload, task?.taskId);
+      if (!task) return;
+      task.pendingAction = null;
+      if (task.running) task.state = "running";
     },
 
-    async loadResults(date?: string) {
+    // ── 结果 ─────────────────────────────────────────────────────────────
+    async loadResults(platform?: string, date?: string) {
+      const target = platform || this.params.site;
       try {
         tracer.startScope("load-results");
         tracer.log({ layer: "FE-API", fn: "engine:loadResults", msg: "加载岗位列表", scope: "load-results", data: {
+          platform: target,
           date: date ?? "(latest)",
-          output_dir: this.config?.output_dir,
         }});
-        const r = await api.getResults(date, this.config?.output_dir);
+        const r = await api.getResults(date, undefined, target);
         const jobs: Job[] = (r.jobs || []).map((j: any) => {
           if (j.salary && (j.salaryMin == null || j.salaryMax == null)) {
             const parsed = parseSalary(j.salary);
@@ -363,97 +616,119 @@ export const useEngine = defineStore("engine", {
           }
           return j as Job;
         });
-        this.jobs = jobs;
-        this.resultFiles = r.files || [];
-        this.currentFile = r.file;
+        const task = this.taskFor(target);
+        if (task) {
+          task.jobs = jobs;
+          task.resultFiles = r.files || [];
+          task.currentFile = r.file;
+        } else {
+          this.detachedResults[target] = {
+            jobs,
+            resultFiles: r.files || [],
+            currentFile: r.file,
+          };
+        }
         tracer.log({ layer: "FE-API", fn: "engine:loadResults", msg: "加载成功", scope: "load-results", data: {
+          platform: target,
           jobs_count: jobs.length,
           current_file: r.file,
           files_count: r.files?.length,
         }});
         tracer.endScope("load-results");
       } catch (e) {
-        this.pushLog("error", `加载结果失败: ${e}`);
+        this.pushLog("error", `加载结果失败: ${e}`, this.taskFor(target)?.taskId);
         tracer.log({ layer: "FE-API", fn: "engine:loadResults", msg: "加载失败", data: { error: String(e) }, scope: "load-results" });
         tracer.endScope("load-results");
       }
     },
 
+    // ── WebSocket ────────────────────────────────────────────────────────
     connectWs() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))
         return;
       const proto = location.protocol === "https:" ? "wss" : "ws";
       ws = new WebSocket(`${proto}://${location.host}/ws`);
       ws.onopen = () => {
-        this.wsConnected = true;
-        tracer.log({ layer: "FE-WS", fn: "engine:connectWs", msg: "WebSocket 已连接", scope: this.running ? "start-collection" : undefined });
+        this._wsConnected = true;
+        tracer.log({ layer: "FE-WS", fn: "engine:connectWs", msg: "WebSocket 已连接", scope: this.anyRunning ? "start-collection" : undefined });
       };
       ws.onclose = () => {
-        this.wsConnected = false;
-        if (this.running) setTimeout(() => this.connectWs(), 1000);
+        this._wsConnected = false;
+        // 只要还有任一任务在跑（或后端报告有任务）就重连，不能只看当前任务
+        if (this.anyRunning || this.config?.running) setTimeout(() => this.connectWs(), 1000);
       };
       ws.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
-        tracer.log({ layer: "FE-WS", fn: "engine:handleEvent", msg: `收到 WS 消息: ${data.type}`, data, scope: this.running ? "start-collection" : undefined });
+        tracer.log({ layer: "FE-WS", fn: "engine:handleEvent", msg: `收到 WS 消息: ${data.type}`, data, scope: this.anyRunning ? "start-collection" : undefined });
         this.handleEvent(data);
       };
     },
 
+    /** 事件按 task_id 路由，绝不写进「当前任务」。 */
     handleEvent(ev: any) {
+      const taskId: string = ev.task_id || this.activeTaskId || "";
+      if (!taskId) return;
+      const task = this.tasks[taskId]
+        ?? this.ensureTask(taskId, ev.platform || this.params.site);
+
       switch (ev.type) {
         case "log":
-          this.pushLog(ev.level || "info", ev.msg ?? "");
+          this.pushLog(ev.level || "info", ev.msg ?? "", task.taskId);
           if (ev.level === "error") {
-            tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: "引擎日志错误", data: { msg: ev.msg }, scope: this.running ? "start-collection" : undefined });
+            tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: "引擎日志错误", data: { msg: ev.msg }, scope: this.anyRunning ? "start-collection" : undefined });
           }
           break;
         case "progress":
-          this.progress = {
+          task.progress = {
             done: ev.done ?? 0,
-            total: ev.total ?? this.progress.total,
+            total: ev.total ?? task.progress.total,
             stats: ev.stats ?? {},
           };
           break;
         case "status":
-          this.state = ev.state as EngineState;
-          tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: `状态变更: ${ev.state}`, data: { detail: ev.detail }, scope: this.running ? "start-collection" : undefined });
+          task.state = ev.state as EngineState;
+          tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: `状态变更: ${ev.state}`, data: { detail: ev.detail }, scope: this.anyRunning ? "start-collection" : undefined });
+          if (ev.state === "running" || ev.state === "paused" || ev.state === "waiting") {
+            task.running = true;
+          }
           if (ev.state === "done" || ev.state === "stopped") {
-            this.running = false;
-            this.stopping = false;
-            this.pausing = false;
-            this.seamlessMode = false;
-            this.loadResults();
+            task.running = false;
+            task.stopping = false;
+            task.pausing = false;
+            task.seamlessMode = false;
+            this.loadResults(task.platform);
             if (ev.state === "done") {
               sound.play("done");
               try { (window as any).pywebview?.api?.flash_taskbar?.(3); } catch { /* 静默 */ }
             }
           }
           if (ev.state === "error") {
-            this.running = false;
-            this.stopping = false;
-            this.pausing = false;
-            this.seamlessMode = false;
-            if (this.stopping || String(ev.detail ?? "").includes("被停止")) {
-              this.state = "stopped";
+            const wasStopping = task.stopping;
+            task.running = false;
+            task.stopping = false;
+            task.pausing = false;
+            task.seamlessMode = false;
+            if (wasStopping || String(ev.detail ?? "").includes("被停止")) {
+              task.state = "stopped";
             }
-            this.errorMsg = String(ev.detail ?? "");
-            this.loadResults();
+            task.errorMsg = String(ev.detail ?? "");
+            this.loadResults(task.platform);
             sound.play("error");
             try { (window as any).pywebview?.api?.flash_taskbar?.(8); } catch { /* 静默 */ }
           }
           if (ev.state === "paused") {
-            this.pausing = false;
+            task.pausing = false;
           }
           break;
         case "need_action":
-          this.pendingAction = { reason: ev.reason, kind: ev.kind || "confirm" };
-          this.state = "waiting";
+          task.pendingAction = { reason: ev.reason, kind: ev.kind || "confirm" };
+          task.state = "waiting";
           sound.play("alert");
           try { (window as any).pywebview?.api?.flash_taskbar?.(6); } catch { /* 静默 */ }
-          tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: "需要用户操作", data: { reason: ev.reason, kind: ev.kind }, scope: this.running ? "start-collection" : undefined });
+          tracer.log({ layer: "FE-ACTION", fn: "engine:handleEvent", msg: "需要用户操作", data: { reason: ev.reason, kind: ev.kind }, scope: this.anyRunning ? "start-collection" : undefined });
           break;
         case "seamless_mode":
-          this.seamlessMode = ev.enabled;
+          task.seamlessMode = ev.enabled;
           break;
       }
     },

@@ -9,6 +9,15 @@ defineEmits<{
 
 const engine = useEngine();
 
+// 平台下拉：显示名给人看，值仍然是平台名
+const platformOptions = computed(() =>
+  engine.platforms.map((p) => ({ label: p.display_name || p.name, value: p.name }))
+);
+
+function onPlatformChange(v: string) {
+  engine.selectPlatform(v);
+}
+
 const browserOptions = [
   { label: "Chrome", value: "chrome" },
   { label: "Edge", value: "edge" },
@@ -213,7 +222,7 @@ async function confirmReset() {
             type="button"
             class="text-[11px] text-fg-subtle hover:text-fg transition-colors font-normal cursor-pointer select-none"
             title="恢复默认配置"
-            :disabled="engine.running"
+            :disabled="engine.selectedRunning"
             @click="resetConfig"
           >
             恢复默认
@@ -246,11 +255,22 @@ async function confirmReset() {
       </button>
     </div>
 
+    <!-- 平台：决定当前查看 / 启动的目标平台 -->
+    <div>
+      <label class="field-label">平台</label>
+      <GlassSelect
+        :model-value="engine.params.site"
+        :options="platformOptions"
+        placeholder="默认平台"
+        @update:model-value="onPlatformChange"
+      />
+    </div>
+
     <!-- 关键词搜索路线开关 -->
     <div id="keyword-search-card" class="rounded-xl bg-bg-raised/60 border border-bg-border p-3">
       <label class="flex items-center justify-between cursor-pointer">
         <span class="text-sm font-medium text-fg">关键词搜索</span>
-        <GlassToggle v-model="engine.params.keyword_search" :disabled="engine.running" />
+        <GlassToggle v-model="engine.params.keyword_search" :disabled="engine.selectedRunning" />
       </label>
       <p class="text-[11px] text-fg-subtle mt-1.5 leading-relaxed">
         {{
@@ -272,7 +292,7 @@ async function confirmReset() {
         placeholder="例如 AI、运营、前端"
         class="input"
         :class="{ 'input-error': !engine.params.query.trim() }"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
       />
       <p class="text-[11px] text-fg-subtle mt-1">必填，提交后自动跳转到对应搜索结果页</p>
     </div>
@@ -284,7 +304,7 @@ async function confirmReset() {
         <button
           type="button"
           class="text-[11px] text-fg-subtle hover:text-fg transition-colors disabled:opacity-50"
-          :disabled="engine.running || engine.citiesRefreshing"
+          :disabled="engine.selectedRunning || engine.citiesRefreshing"
           title="基于已登录的浏览器获取城市列表"
           @click="engine.refreshCities()"
         >
@@ -294,7 +314,7 @@ async function confirmReset() {
       <GlassSelect
         :model-value="engine.params.city_code || ''"
         :options="engine.cities"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         filterable
         placeholder="默认浏览器当前城市"
         @update:model-value="onCityChange"
@@ -310,7 +330,7 @@ async function confirmReset() {
         min="1"
         max="500"
         class="input"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
       />
     </div>
 
@@ -321,7 +341,7 @@ async function confirmReset() {
         :model-value="salaryRangeValue"
         :options="SALARY_RANGE_OPTIONS"
         placeholder="不限"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         @update:model-value="(v) => (salaryRangeValue = v)"
       />
       <label v-if="salaryRangeValue !== '0-0'" class="flex items-center justify-between cursor-pointer mt-2 pl-0.5">
@@ -331,7 +351,7 @@ async function confirmReset() {
         </span>
         <GlassCheckbox
           v-model="engine.params.salary_fuzzy"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
         />
       </label>
       <p class="text-[11px] text-fg-subtle mt-1">自动过滤；结果表可进一步筛选</p>
@@ -344,7 +364,7 @@ async function confirmReset() {
         :model-value="engine.params.job_type"
         :options="JOB_TYPE_OPTIONS"
         placeholder="不限"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         @update:model-value="(v) => (engine.params.job_type = v)"
       />
     </div>
@@ -357,7 +377,7 @@ async function confirmReset() {
         label="学历"
         :options="DEGREE_OPTIONS"
         :filterable="false"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         @update:model-value="(v) => (selectedDegrees = v)"
       />
     </div>
@@ -370,7 +390,7 @@ async function confirmReset() {
         label="经验"
         :options="EXPERIENCE_OPTIONS"
         :filterable="false"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         @update:model-value="(v) => (selectedExperience = v)"
       />
     </div>
@@ -381,7 +401,7 @@ async function confirmReset() {
       <GlassSelect
         :model-value="engine.params.browser_type"
         :options="browserOptions"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
         @update:model-value="onBrowserChange"
       />
       <div class="flex items-center gap-1.5 mt-1">
@@ -390,14 +410,14 @@ async function confirmReset() {
           type="text"
           placeholder="未检测到浏览器路径"
           class="input !py-1 !text-[11px]"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @change="onBrowserPathChange"
         />
         <button
           type="button"
           class="btn-ghost !py-1 !px-2 text-[11px] shrink-0"
           title="清除当前自定义路径，恢复并自动检测系统默认安装位置"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @click="resetBrowserPath"
         >
           自动检测
@@ -405,7 +425,7 @@ async function confirmReset() {
         <button
           type="button"
           class="btn-ghost !py-1 !px-2 text-[11px] shrink-0"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @click="pickBrowser"
         >
           浏览
@@ -419,7 +439,7 @@ async function confirmReset() {
         <span>输出文件名</span>
         <span class="flex items-center gap-1.5 text-[11px] text-fg-muted font-normal">
           同步配置
-          <GlassCheckbox v-model="engine.params.tag_sync" :disabled="engine.running" />
+          <GlassCheckbox v-model="engine.params.tag_sync" :disabled="engine.selectedRunning" />
         </span>
       </label>
       <input
@@ -428,7 +448,7 @@ async function confirmReset() {
         type="text"
         placeholder="不填则不加分隔名"
         class="input"
-        :disabled="engine.running"
+        :disabled="engine.selectedRunning"
       />
       <input
         v-else
@@ -445,7 +465,7 @@ async function confirmReset() {
         <GlassSelect
           :model-value="engine.params.speed"
           :options="SPEED_OPTIONS"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @update:model-value="onSpeedChange"
         />
         <p class="text-[11px] text-fg-muted leading-relaxed">
@@ -454,7 +474,7 @@ async function confirmReset() {
       </div>
       <label class="flex items-center justify-between cursor-pointer">
         <span class="text-sm text-fg-muted">强制启动新浏览器</span>
-        <GlassCheckbox v-model="engine.params.new_chrome" :disabled="engine.running" />
+        <GlassCheckbox v-model="engine.params.new_chrome" :disabled="engine.selectedRunning" />
       </label>
     </div>
 
@@ -467,13 +487,13 @@ async function confirmReset() {
           type="text"
           placeholder="-"
           class="input !py-1 !text-[11px]"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @change="onOutputDirChange"
         />
         <button
           type="button"
           class="btn-ghost !py-1 !px-2 text-[11px] shrink-0"
-          :disabled="engine.running"
+          :disabled="engine.selectedRunning"
           @click="pickFolder"
         >
           浏览

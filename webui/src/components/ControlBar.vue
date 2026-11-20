@@ -152,7 +152,7 @@ function openReview() {
           class="btn-ghost !py-1 !px-2.5 text-xs"
           :disabled="!engine.running"
           title="暂停采集，可稍后继续"
-          @click="engine.pause()"
+          @click="engine.pause(engine.activeTask?.taskId)"
         >
           ⏸ 暂停
         </button>
@@ -163,7 +163,7 @@ function openReview() {
         v-if="engine.state === 'paused'"
         class="btn-primary !py-1 !px-2.5 text-xs"
         title="继续采集"
-        @click="engine.resume()"
+        @click="engine.resume(engine.activeTask?.taskId)"
       >
         ▶ 继续
       </button>
@@ -174,7 +174,7 @@ function openReview() {
         class="btn-danger !py-1 !px-2.5 text-xs"
         :disabled="engine.stopping"
         :class="{ 'opacity-60 cursor-not-allowed': engine.stopping }"
-        @click="engine.stop()"
+        @click="engine.stop(engine.activeTask?.taskId)"
       >
         {{ engine.stopping ? '■ 停止中…' : '■ 停止' }}
       </button>

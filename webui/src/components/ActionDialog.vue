@@ -8,7 +8,7 @@ const engine = useEngine();
 
 const open = computed({
   get: () => !!engine.pendingAction,
-  set: () => engine.ack(""),
+  set: () => engine.ack("", engine.activeTask?.taskId),
 });
 
 const meta = computed(() => {
@@ -45,13 +45,13 @@ const isPageConfirm = computed(() => engine.pendingAction?.kind === "page_confir
 
     <template #footer>
       <div class="flex gap-2 flex-wrap">
-        <GlassButton v-if="isPageCheck" variant="ghost" size="sm" @click="engine.ack('manual_scroll')">
+        <GlassButton v-if="isPageCheck" variant="ghost" size="sm" @click="engine.ack('manual_scroll', engine.activeTask?.taskId)">
           已手动滚动/翻页
         </GlassButton>
-        <GlassButton v-if="isPageCheck || isPageConfirm" variant="ghost" size="sm" @click="engine.ack('wait')">
+        <GlassButton v-if="isPageCheck || isPageConfirm" variant="ghost" size="sm" @click="engine.ack('wait', engine.activeTask?.taskId)">
           我要先手动操作
         </GlassButton>
-        <GlassButton variant="solid" size="sm" @click="engine.ack('')">
+        <GlassButton variant="solid" size="sm" @click="engine.ack('', engine.activeTask?.taskId)">
           我已完成，继续
         </GlassButton>
       </div>

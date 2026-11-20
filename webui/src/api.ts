@@ -6,8 +6,14 @@ export interface EngineConfig {
   running: boolean;
 }
 
+export interface PlatformInfo {
+  name: string;
+  display_name: string;
+}
+
 export interface StartParams {
   count: number;
+  site: string;
   browser_type: string;
   safe_mode: boolean;
   fast: boolean;
@@ -72,39 +78,46 @@ async function jsonFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** 给 stop / pause / resume / ack / status 拼上目标任务的 task_id。 */
+function taskQuery(taskId?: string): string {
+  return taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+}
+
 export const api = {
+  getPlatforms: () =>
+    jsonFetch<{ ok: boolean; platforms: PlatformInfo[] }>("/api/platforms"),
   getConfig: (browser = "chrome") =>
     jsonFetch<EngineConfig>(`/api/config?browser_type=${browser}`),
   start: (params: StartParams) =>
-    jsonFetch<{ ok: boolean; error?: string }>("/api/start", {
+    jsonFetch<{ ok: boolean; error?: string; task_id?: string }>("/api/start", {
       method: "POST",
       body: JSON.stringify(params),
     }),
-  stop: () => jsonFetch<{ ok: boolean }>("/api/stop", { method: "POST" }),
-  pause: () => jsonFetch<{ ok: boolean }>("/api/pause", { method: "POST" }),
-  resume: () => jsonFetch<{ ok: boolean }>("/api/resume", { method: "POST" }),
-  getStatus: () =>
+  stop: (taskId?: string) =>
+    jsonFetch<{ ok: boolean }>("/api/stop" + taskQuery(taskId), { method: "POST" }),
+  pause: (taskId?: string) =>
+    jsonFetch<{ ok: boolean }>("/api/pause" + taskQuery(taskId), { method: "POST" }),
+  resume: (taskId?: string) =>
+    jsonFetch<{ ok: boolean }>("/api/resume" + taskQuery(taskId), { method: "POST" }),
+  getStatus: (taskId?: string) =>
     jsonFetch<{ running: boolean; state: string; progress: any; pending_action: any }>(
-      "/api/status"
+      "/api/status" + taskQuery(taskId)
     ),
-  ack: (payload = "") =>
-    jsonFetch<{ ok: boolean }>("/api/ack", {
+  ack: (payload = "", taskId?: string) =>
+    jsonFetch<{ ok: boolean }>("/api/ack" + taskQuery(taskId), {
       method: "POST",
       body: JSON.stringify({ payload }),
     }),
-  getResults: (date?: string, outputDir?: string) =>
-    jsonFetch<ResultsResponse>(
-      "/api/results" +
-        (date || outputDir
-          ? "?" +
-            [
-              date ? `date=${encodeURIComponent(date)}` : "",
-              outputDir ? `output_dir=${encodeURIComponent(outputDir)}` : "",
-            ]
-              .filter(Boolean)
-              .join("&")
-          : "")
-    ),
+  getResults: (date?: string, outputDir?: string, platform?: string) => {
+    const query = [
+      date ? `date=${encodeURIComponent(date)}` : "",
+      outputDir ? `output_dir=${encodeURIComponent(outputDir)}` : "",
+      platform ? `platform=${encodeURIComponent(platform)}` : "",
+    ]
+      .filter(Boolean)
+      .join("&");
+    return jsonFetch<ResultsResponse>("/api/results" + (query ? "?" + query : ""));
+  },
   getCities: () => jsonFetch<{ cities: City[] }>("/api/cities"),
   refreshCities: (browser = "chrome") =>
     jsonFetch<{ ok: boolean; error?: string; cities: City[] }>(
