@@ -1,7 +1,9 @@
 """FastAPI 后端：REST 控制接口 + WebSocket 实时事件流 + 静态前端托管。"""
 import asyncio
 import glob
+import importlib
 import json
+import pkgutil
 import threading
 import uuid
 import os
@@ -14,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import src.adapters
+from src.adapters.registry import create_adapter
 from src.config import DEFAULT_PLATFORM, get_config, save_config, load_start_params, save_start_params
 from src.core.cities import get_cities, refresh_from_browser
 
@@ -69,6 +73,46 @@ class ConfigBody(BaseModel):
 
 def _dump(model: BaseModel) -> dict:
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+_platform_cache: list[dict] | None = None
+
+
+def platform_catalog() -> list[dict]:
+    """已注册平台目录（名字 + 显示名）。
+
+    导入 ``src/adapters`` 下的每个模块触发自注册，再用公开的 ``create_adapter``
+    取显示名；``base`` / ``registry`` 这类不注册适配器的模块会被跳过。
+    默认平台排第一，其余按名字排序。新增平台只需要建目录，这里不用改。
+    """
+    global _platform_cache
+    if _platform_cache is not None:
+        return _platform_cache
+
+    names: list[str] = []
+    for info in pkgutil.iter_modules(src.adapters.__path__):
+        try:
+            importlib.import_module(f"{src.adapters.__name__}.{info.name}")
+            create_adapter(info.name)
+        except Exception:
+            continue
+        names.append(info.name)
+
+    names.sort()
+    if DEFAULT_PLATFORM in names:
+        names.remove(DEFAULT_PLATFORM)
+        names.insert(0, DEFAULT_PLATFORM)
+    _platform_cache = [
+        {"name": name, "display_name": getattr(create_adapter(name), "display_name", "") or name}
+        for name in names
+    ]
+    return _platform_cache
+
+
+@app.get("/api/platforms")
+def api_platforms():
+    """给前端平台选择器用的平台列表。"""
+    return {"ok": True, "platforms": platform_catalog()}
 
 
 @app.get("/api/config")
@@ -187,9 +231,18 @@ def api_status(task_id: str | None = None):
 
 
 @app.get("/api/results")
-def api_results(date: str | None = None, output_dir: str | None = None):
-    cfg = get_config("chrome")
-    out = output_dir if output_dir else cfg.get("output_dir", "")
+def api_results(date: str | None = None, output_dir: str | None = None,
+                platform: str | None = None):
+    """最新（或指定日期）岗位 JSON。
+
+    传 ``platform`` 时按平台解析输出目录；不传时沿用旧行为（``output_dir`` 或默认平台）。
+    """
+    if platform:
+        out = get_config("chrome", platform=platform).get("output_dir", "")
+    elif output_dir:
+        out = output_dir
+    else:
+        out = get_config("chrome").get("output_dir", "")
     files = sorted(glob.glob(os.path.join(out, "jobs_*.json")), reverse=True)
     if not files:
         return {"jobs": [], "file": None, "files": []}
@@ -332,6 +385,7 @@ class TrackBody(BaseModel):
     encrypt_job_id: str = ""
     status: str
     note: str = ""
+    platform: str = ""
 
 
 class FocusBody(BaseModel):
@@ -418,8 +472,8 @@ def _with_browser(fn, prefer_chat: bool = False, platform: str | None = None):
 
 
 @app.get("/api/tracking")
-def api_tracking():
-    return get_runtime().tracker.all()
+def api_tracking(platform: str | None = None):
+    return get_runtime(platform).tracker.all()
 
 
 @app.post("/api/tracking")
@@ -428,7 +482,8 @@ def api_tracking_set(body: TrackBody):
     if not key:
         return {"ok": False, "error": "缺少岗位 ID"}
     try:
-        return {"ok": True, "record": get_runtime().tracker.set(key, body.status, body.note)}
+        return {"ok": True, "record": get_runtime(body.platform or None).tracker.set(
+            key, body.status, body.note)}
     except (ValueError, TrackingError) as exc:
         return {"ok": False, "error": str(exc)}
 

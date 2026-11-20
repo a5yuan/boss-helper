@@ -156,23 +156,26 @@ class Session:
         return events
 
     @staticmethod
-    def _snapshot_for(task_id: str, ctrl: GuiController) -> list[dict]:
-        """单个任务的 status / progress / need_action 快照，全部带 task_id。"""
+    def _snapshot_for(task_id: str, ctrl: GuiController, platform: str) -> list[dict]:
+        """单个任务的 status / progress / need_action 快照，全部带 task_id 与平台。"""
         events = [
-            {"type": "status", "state": ctrl.state, "task_id": task_id},
-            {"type": "progress", **ctrl.latest_progress, "task_id": task_id},
+            {"type": "status", "state": ctrl.state, "platform": platform, "task_id": task_id},
+            {"type": "progress", **ctrl.latest_progress, "platform": platform, "task_id": task_id},
         ]
         if ctrl.pending_action:
-            events.append({"type": "need_action", **ctrl.pending_action, "task_id": task_id})
+            events.append({"type": "need_action", **ctrl.pending_action,
+                           "platform": platform, "task_id": task_id})
         return events
 
     def snapshot_events(self) -> list[dict]:
         """连接建立时推送的快照：先推所有活任务，没有活任务时退回最后一次的终态。"""
-        pairs = self.controllers()
+        with self._lock:
+            pairs = [(task_id, task["controller"], task["platform"])
+                     for task_id, task in self.tasks.items()]
         if pairs:
             events: list[dict] = []
-            for task_id, ctrl in pairs:
-                events.extend(self._snapshot_for(task_id, ctrl))
+            for task_id, ctrl, platform in pairs:
+                events.extend(self._snapshot_for(task_id, ctrl, platform))
             return events
 
         # 老行为：任务结束后前端刷新仍要能看到最后一次的进度与状态
@@ -181,7 +184,9 @@ class Session:
             record = self._terminal.get(task_id) if task_id else None
         if not record:
             return []
-        return self._snapshot_for(task_id, record[0]["controller"])
+        task = record[0]
+        return self._snapshot_for(task_id, task["controller"],
+                                  task.get("platform") or DEFAULT_PLATFORM)
 
     def params(self, task_id: str | None = None) -> dict | None:
         with self._lock:

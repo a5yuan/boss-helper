@@ -80,6 +80,8 @@ class TestSnapshotEvents(unittest.TestCase):
         boss_events = by_task["t-boss"]
         self.assertEqual([e["type"] for e in boss_events], ["status", "progress"])
         self.assertEqual(boss_events[0]["state"], "running")
+        # 快照自带平台，前端刷新后按平台铺任务，不用再查一次
+        self.assertTrue(all(e["platform"] == "boss" for e in boss_events))
         self.assertEqual((boss_events[1]["done"], boss_events[1]["total"]), (3, 10))
         self.assertEqual(boss_events[1]["stats"], {"ok": 2})
 
@@ -88,6 +90,7 @@ class TestSnapshotEvents(unittest.TestCase):
         self.assertEqual([e["type"] for e in fake_events],
                          ["status", "progress", "need_action"])
         self.assertEqual(fake_events[0]["state"], "paused")
+        self.assertTrue(all(e["platform"] == "fake" for e in fake_events))
         self.assertEqual(fake_events[2]["reason"], "扫码")
 
     def test_snapshot_falls_back_to_terminal_task(self):
