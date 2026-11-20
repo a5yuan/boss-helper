@@ -13,6 +13,8 @@ tests/test_input_policy.py 会扫描这个模式的违规写法。
 import json
 import time
 
+from src.focus_lock import foreground
+
 LOCATE_JS = r"""
 (() => {
   const vis = el => {
@@ -74,22 +76,27 @@ def read_length(chrome) -> int:
 
 
 def fill_chat_input(chrome, text: str, blur_after: bool = True) -> dict:
-    """写入并（默认）失焦。调用方负责在失焦后给平台留出保存时间。"""
+    """写入并（默认）失焦。调用方负责在失焦后给平台留出保存时间。
+
+    locate 是只读 JS，不占前台锁；从 bring_to_front 开始到 blur 结束
+    这一段会抢窗口焦点，必须和另一个平台串行（见 src/focus_lock.py）。
+    """
     info = locate(chrome)
     if not info.get("ok"):
         return info
-    try:
-        chrome.bring_to_front()
-        chrome.native_click(info["x"], info["y"])
-        _key(chrome, "a", "KeyA", 65, modifiers=2)      # Ctrl+A
-        _key(chrome, "Backspace", "Backspace", 8)       # 清空
-        chrome.send_cdp("Input.insertText", {"text": text})
-        time.sleep(0.3)
-        got = read_length(chrome)
-        if got < 20:
-            return {"ok": False, "reason": f"输入后长度异常: {got}"}
-        if blur_after:
-            blur(chrome)
-        return {"ok": True, "tag": info.get("tag", ""), "length": got}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "reason": f"输入失败: {exc}"}
+    with foreground():
+        try:
+            chrome.bring_to_front()
+            chrome.native_click(info["x"], info["y"])
+            _key(chrome, "a", "KeyA", 65, modifiers=2)      # Ctrl+A
+            _key(chrome, "Backspace", "Backspace", 8)       # 清空
+            chrome.send_cdp("Input.insertText", {"text": text})
+            time.sleep(0.3)
+            got = read_length(chrome)
+            if got < 20:
+                return {"ok": False, "reason": f"输入后长度异常: {got}"}
+            if blur_after:
+                blur(chrome)
+            return {"ok": True, "tag": info.get("tag", ""), "length": got}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "reason": f"输入失败: {exc}"}

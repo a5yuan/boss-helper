@@ -21,6 +21,7 @@ from src.adapters.base import (
 )
 from src.core.browser import StopError
 from src.core.js_loader import load_js
+from src.focus_lock import foreground
 from src.utils import chat_input
 
 SEARCH_BASE = "https://www.zhipin.com/web/geek/jobs"
@@ -581,9 +582,11 @@ class BossAdapter:
             except Exception as exc:
                 info = {"ok": False, "reason": f"定位失败: {exc}"}
             if info.get("ok"):
-                self.page.bring_to_front()
-                self.page.native_click(info["x"], info["y"])
-                time.sleep(1.0)
+                # 定位只读 JS 在锁外；切前台 + 坐标点击会抢焦点，必须串行。
+                with foreground():
+                    self.page.bring_to_front()
+                    self.page.native_click(info["x"], info["y"])
+                    time.sleep(1.0)
                 return info
             time.sleep(0.6)
         # 兜底：老办法，直接在页面里 click()
@@ -616,15 +619,17 @@ class BossAdapter:
         if not res.get("ok"):
             return res
 
-        self.page.bring_to_front()
-        for attempt in range(3):
-            self.page.native_click(res["x"], res["y"])
-            deadline = time.time() + timeout / 2
-            while time.time() < deadline:
-                if self.chat_input_ready():
-                    return res | {"input_ready": True, "clicks": attempt + 1}
-                time.sleep(0.4)
-            time.sleep(0.5)
+        # 会话定位是只读 JS，放在锁外；切前台 + 坐标点击循环会抢焦点。
+        with foreground():
+            self.page.bring_to_front()
+            for attempt in range(3):
+                self.page.native_click(res["x"], res["y"])
+                deadline = time.time() + timeout / 2
+                while time.time() < deadline:
+                    if self.chat_input_ready():
+                        return res | {"input_ready": True, "clicks": attempt + 1}
+                    time.sleep(0.4)
+                time.sleep(0.5)
         return res | {"input_ready": False, "clicks": 3}
 
     def chat_input_ready(self) -> bool:

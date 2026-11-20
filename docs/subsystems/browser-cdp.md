@@ -14,6 +14,8 @@
 - `disconnect()` 只关 WebSocket，不关浏览器；`close()` 仅在 `_owns_browser` 时杀进程。
 - 标签页选择只考虑 `type == "page"`；`shared_worker` 的 URL 也可能含 `geek-chat`，必须排除。
 - 端口文件写入失败不影响主流程。
+- **真实前台段必须串行**：`bring_to_front` + 坐标点击 + 真实按键 + blur 会抢进程级窗口焦点，
+  这一段必须持有 `src/focus_lock.foreground()`；纯 CDP / JS 读取与点击不持锁，否则会拖慢并发采集。
 
 ## 依赖方向
 
@@ -22,6 +24,7 @@ src.collector / server.app / src.core.cities
         → src.core.browser
 src.core.browser → src.config, requests, websocket-client, src.utils.window
 src.core.browser → server.tracer（仅函数内延迟 import）
+src.adapters.boss / src.utils.chat_input / src.ai.dispatch → src.focus_lock
 ```
 
 不得 import `collector` / `extractor`。
@@ -33,6 +36,7 @@ src.core.browser → server.tracer（仅函数内延迟 import）
 | `src/core/browser.py` | `BrowserManager`：连接、启动、发现页面、CDP 收发、前台化 |
 | `src/config.py` | 浏览器路径 / 端口文件 / profile 目录 |
 | `src/utils/window.py` | Win32 前台化兜底 |
+| `src/focus_lock.py` | 进程级前台锁，串行化需要真实窗口焦点的操作 |
 | `.cdp_port_{platform}_{browser}` | 最近一次使用的调试端口；BOSS 兼容旧 `.cdp_port_{browser}` |
 
 ## 已知陷阱

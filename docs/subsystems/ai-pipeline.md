@@ -35,7 +35,7 @@
 
 ```
 src.ai.pipeline → src.ai.client, src.ai.screen, src.ai.dispatch, src.config
-src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.runtime, src.tracking
+src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.runtime, src.tracking, src.focus_lock
 src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 ```
 

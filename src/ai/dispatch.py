@@ -15,6 +15,7 @@ from src.adapters.boss import BossAdapter
 from src.config import get_config, load_ai_config
 from src.core.browser import BrowserManager
 from src.core.js_loader import load_js
+from src.focus_lock import foreground
 from src.ai.activity import is_offline, parse_active_days
 from src.runtime import get_runtime
 from src.tracking import track_key
@@ -350,7 +351,9 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
                 bm.evaluate("location.href=" + json.dumps(chat_url))
                 time.sleep(1.0)
                 log(f"[*] 已跳到聊天页: {chat_url}")
-            bm.bring_to_front()
+            # 只切前台，但别插到另一个平台填字中间，所以也要持锁。
+            with foreground():
+                bm.bring_to_front()
         except Exception as exc:  # noqa: BLE001
             log(f"[!] 跳转聊天页失败: {exc}")
         bm.disconnect()
