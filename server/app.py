@@ -627,6 +627,7 @@ class AiScreenBody(BaseModel):
     file: str = ""
     limit: int | None = None
     force: bool = False
+    platform: str = ""
 
 
 class AiFillBody(BaseModel):
@@ -642,6 +643,7 @@ class AiGreetingBody(BaseModel):
     file: str = ""
     encrypt_job_id: str = ""
     greeting: str = ""
+    platform: str = ""
 
 
 _ai_fills: dict[str, dict] = {}
@@ -652,9 +654,9 @@ def _fill_state(task_id: str | None = None) -> dict | None:
     return _ai_fills.get(task_id or _latest_fill_id or "")
 
 
-def _ai_plan_path(file_name: str) -> str:
+def _ai_plan_path(file_name: str, platform: str | None = None) -> str:
     from src.ai.pipeline import plan_path_for
-    cfg = get_config("chrome")
+    cfg = get_config("chrome", platform=platform or None)
     out = cfg.get("output_dir", "")
     target = file_name or ""
     if not target:
@@ -666,11 +668,11 @@ def _ai_plan_path(file_name: str) -> str:
 
 
 @app.get("/api/ai/plan")
-def api_ai_plan(file: str = ""):
+def api_ai_plan(file: str = "", platform: str | None = None):
     """读取某个采集文件对应的 AI 计划（没跑过就返回 exists=false）。"""
     from src.ai.pipeline import load_plan
     try:
-        path = _ai_plan_path(file)
+        path = _ai_plan_path(file, platform)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     if not os.path.exists(path):
@@ -688,7 +690,7 @@ def api_ai_screen(body: AiScreenBody):
     if session.running:
         return {"ok": False, "error": "采集任务运行中，先停下再筛选"}
     from src.ai.pipeline import build_plan, load_plan
-    cfg = get_config("chrome")
+    cfg = get_config("chrome", platform=body.platform or None)
     out = cfg.get("output_dir", "")
     target = body.file
     if not target:
@@ -702,7 +704,7 @@ def api_ai_screen(body: AiScreenBody):
     try:
         logs: list = []
         build_plan(src_path, limit=body.limit, force=body.force, on_event=logs.append)
-        plan = load_plan(_ai_plan_path(target))
+        plan = load_plan(_ai_plan_path(target, body.platform))
     except Exception as exc:  # noqa: BLE001
         tracer.entry("app.py:api_ai_screen", "AI 筛选失败", {"error": str(exc)}, scope="error")
         return {"ok": False, "error": str(exc)}
@@ -715,7 +717,7 @@ def api_ai_greeting(body: AiGreetingBody):
     """保存单条招呼语的编辑。"""
     from src.ai.pipeline import load_plan, save_plan
     try:
-        path = _ai_plan_path(body.file)
+        path = _ai_plan_path(body.file, body.platform)
         plan = load_plan(path)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}

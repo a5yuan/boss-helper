@@ -46,7 +46,7 @@ src.tracking → src.config（延迟 import）
 
 ## 已知陷阱
 
-- **AI 接口仍未按平台隔离**：`/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting`、`/api/ai/fill` 都不收 `platform`，复核页在非默认平台禁用「AI 筛选」「AI 批量填」，避免读写默认平台的计划与输出目录。
+- **AI 筛选与计划已按平台，批量填还没有**：`/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting` 接受 `platform`，计划文件写在 `output/{platform}/ai_plan_*.json`；复核页在非默认平台可用「AI 筛选」和招呼语编辑。`/api/ai/fill` 的派发虽带 `platform`，但计划路径仍按默认平台解析，复核页继续在非默认平台禁用「AI 批量填」。
 - **`_find_job` 只查默认平台输出目录**：非默认平台的岗位查不到记录，`/api/greet` 的默认招呼语会退化成「这个岗位」；显式传 `text` 不受影响。`/api/focus` 里点不到卡片时的 URL 回退仍拼 BOSS 详情地址，非 BOSS 平台不要依赖这条回退。
 - **旧数据缺 `encrypt_job_id`**：只能在同一页面会话内用 `security_id` 定位，刷新后失效；前端会显示"无ID / 旧数据"提示，重新采集可修复。
 - **URL 回退会离开列表页**：`job_detail/<eid>.html` 打开后，原搜索结果页状态丢失；需要回列表时用浏览器后退。

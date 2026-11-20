@@ -112,30 +112,25 @@ const $ = s => document.querySelector(s);
 const state = { jobs: [], tracking: {}, filter: 'all', q: '', smin: null, excl: '', idx: -1, list: [], files: [], file: null, platforms: [], platform: '', defaultPlatform: '' };
 const ai = { items: {}, exists: false, polling: null, busy: false };
 
-// AI 接口还没按平台隔离，非默认平台下禁用，避免写错输出目录
+// 筛选与计划读写已按平台；批量填还没接 platform，非默认平台下仍禁用
 const AI_TITLES = {
   screen: '按简历给这批岗位打分并生成招呼语',
   fill: '逐条点沟通并把招呼语填进输入框（不发送）',
 };
-const AI_PLATFORM_HINT = 'AI 接口尚未按平台隔离，切回默认平台后可用';
+const AI_FILL_HINT = 'AI 批量填尚未按平台隔离，切回默认平台后可用';
 
-function aiAllowed() {
+function aiFillAllowed() {
   return !state.defaultPlatform || state.platform === state.defaultPlatform;
 }
 
 function applyAiAvailability() {
-  const limited = !aiAllowed();
   const screenBtn = $('#btn-ai-screen');
   const fillBtn = $('#btn-ai-fill');
-  screenBtn.title = limited ? AI_PLATFORM_HINT : AI_TITLES.screen;
-  fillBtn.title = limited ? AI_PLATFORM_HINT : AI_TITLES.fill;
-  if (limited) {
-    screenBtn.disabled = true;
-    fillBtn.disabled = true;
-  } else if (!ai.busy) {
-    screenBtn.disabled = false;
-    fillBtn.disabled = false;
-  }
+  const fillLimited = !aiFillAllowed();
+  screenBtn.title = AI_TITLES.screen;
+  screenBtn.disabled = ai.busy;
+  fillBtn.title = fillLimited ? AI_FILL_HINT : AI_TITLES.fill;
+  fillBtn.disabled = fillLimited || ai.busy;
 }
 
 function toast(msg, kind) {
@@ -360,8 +355,7 @@ async function loadFile(name) {
     state.idx = 0;
     renderFileSelect();
     render();
-    if (aiAllowed()) loadAiPlan();
-    else { ai.exists = false; ai.items = {}; render(); }
+    loadAiPlan();
   } catch (e) { toast('加载文件失败: ' + e.message, 'err'); }
 }
 
@@ -383,8 +377,7 @@ async function loadPlatformData() {
     return;
   }
   render();
-  if (aiAllowed()) loadAiPlan();
-  else { ai.exists = false; ai.items = {}; render(); }
+  loadAiPlan();
 }
 
 async function onPlatformChange(platform) {
@@ -397,7 +390,8 @@ async function onPlatformChange(platform) {
 
 async function loadAiPlan() {
   try {
-    const r = await api('/api/ai/plan?file=' + encodeURIComponent(state.file || ''));
+    const r = await api('/api/ai/plan?file=' + encodeURIComponent(state.file || '') +
+      '&platform=' + encodeURIComponent(state.platform || ''));
     ai.exists = !!r.exists;
     ai.items = {};
     (r.items || []).forEach(it => { if (it.encrypt_job_id) ai.items[it.encrypt_job_id] = it; });
@@ -407,14 +401,13 @@ async function loadAiPlan() {
 
 async function aiScreen() {
   if (ai.busy) return;
-  if (!aiAllowed()) { toast(AI_PLATFORM_HINT, 'err'); return; }
   if (!state.file) { toast('先选一个采集文件', 'err'); return; }
   ai.busy = true; $('#btn-ai-screen').disabled = true;
   toast('AI 筛选中，20 条大约 30 秒…');
   try {
     const r = await api('/api/ai/screen', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file: state.file }),
+      body: JSON.stringify({ file: state.file, platform: state.platform }),
     });
     if (!r.ok) { toast('筛选失败: ' + (r.error || ''), 'err'); return; }
     ai.exists = true;
@@ -431,7 +424,7 @@ async function saveGreeting(eid, text) {
   try {
     const r = await api('/api/ai/greeting', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file: state.file, encrypt_job_id: eid, greeting: text }),
+      body: JSON.stringify({ file: state.file, encrypt_job_id: eid, greeting: text, platform: state.platform }),
     });
     if (r.ok) {
       if (ai.items[eid]) ai.items[eid].greeting = r.item.greeting;
@@ -442,7 +435,7 @@ async function saveGreeting(eid, text) {
 
 async function aiFill() {
   if (ai.busy) return;
-  if (!aiAllowed()) { toast(AI_PLATFORM_HINT, 'err'); return; }
+  if (!aiFillAllowed()) { toast(AI_FILL_HINT, 'err'); return; }
   if (!state.file) { toast('先选一个采集文件', 'err'); return; }
   const n = Object.values(ai.items).filter(x => x.status === 'planned' && x.dispatch !== 'done').length;
   if (!n) { toast('没有待填充的岗位，先跑 AI 筛选', 'err'); return; }
