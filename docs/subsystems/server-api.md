@@ -3,7 +3,7 @@
 ## 职责
 
 - `server/app.py`：FastAPI REST + WebSocket + 静态前端托管 + `/review` 页面。
-- `server/session.py`：单任务会话，把 `run_collection` 放进 daemon 线程。
+- `server/session.py`：任务注册表，每个 `task_id` 一个 daemon 线程跑 `run_collection`。
 - `server/tracer.py`：TraceLink 单例与 Receiver 配置。
 - `run_gui.py`：进程编排（uvicorn 子线程、Vite、pywebview 窗口、端口发现、启动日志）。
 - `webui/`：Vue 3 + Vite + Pinia 前端。
@@ -12,8 +12,9 @@
 
 ## 不变量
 
-- **同一时刻只有一个采集任务**：`Session.running` 为真时 `start` 抛错。
-- **引擎与 UI 只通过 `GuiController.events` 队列通信**；WS 每 0.15s `drain()` 一次。
+- **同一平台同一时刻只有一个采集任务**：`Session.running_for(platform)` 为真时 `start` 抛 `RuntimeError`；不同平台可以并存。
+- **引擎与 UI 只通过 `GuiController.events` 队列通信**；WS 每 0.15s 把所有 controller 的队列 drain 一遍，每条事件追加 `task_id`。
+- **任务结束后从 `tasks` 移除**，controller 留在 `_terminal` 里 300 秒（最多 8 条），供前端轮询收尾。
 - **API 失败返回 `{ok: false, error}`**，不把 traceback 直接抛给前端。
 - **dev 模式**：Vite 代理 `/api`、`/ws`、`/review`、`/__debug_log`、`/__debug_panel` 到后端；**prod 模式**：`server/static/` 挂在 `/`。
 - **`/review` 不依赖 Vue 构建产物**，直接返回 `server/review.html`。
@@ -50,11 +51,11 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | POST | `/api/start-params/reset` | 重置默认 |
 | GET | `/api/cities` | 城市列表（缓存优先） |
 | POST | `/api/cities/refresh` | 页内 fetch `city.json` |
-| POST | `/api/start` / `stop` / `pause` / `resume` | 任务控制；start 返回 `task_id`，其余可用 `task_id` 指定目标任务，缺省为当前任务 |
+| POST | `/api/start` / `stop` / `pause` / `resume` | 任务控制；start 返回 `task_id`（`site` 或别名 `platform` 指定平台），其余可用 `task_id` 指定目标任务，缺省为当前任务 |
 | GET | `/api/status` | 运行状态、进度、待办动作；可用 `task_id` 查指定任务 |
 | POST | `/api/ack` | 用户完成扫码 / 确认；可用 `task_id` 指定目标任务 |
 | GET | `/api/results` | 最新（或指定日期）岗位 JSON |
-| WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流 |
+| WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流；连接时先推所有任务快照，之后一条连接转发所有平台，事件自带 `task_id` |
 | GET / POST | `/api/tracking` | 投递状态 |
 | POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗 |
 | POST | `/api/greet` | 填招呼语 |
@@ -72,7 +73,8 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 - **WS 是轮询式 drain**：两个客户端同时连接会互相抢事件；不要假设多标签页都能收到完整日志。
 - **同步路由会占线程池**：`/api/focus`、`/api/greet` 内部同步操作浏览器（含 `time.sleep`），并发请求会排队。
 - **`_with_browser` 在采集运行时直接拒绝**：这是有意的，不要改成并发连接同一个浏览器。
-- **`session.controller()` 在任务结束后仍保留**：`/api/status` 会继续返回最后一次进度和 state，前端据此显示"已停止"。
+- **终态记录只保留 300 秒**：`/api/status` 在这段时间内仍返回最后一次进度和 state，前端据此显示"已停止"。
+- **`current_task_id` 指向最后一次 `start` 的任务**：不传 `task_id` 的 status / stop 走的仍是它；多平台并行时前端必须按 `task_id` 取状态（Phase 3）。
 - **状态按 `task_id` 索引**：`/api/focus`、`/api/greet` 只在同平台任务运行时拒绝，不会因为别的平台任务在跑就拒绝。
 - **`StaticFiles` 挂在 `/`**：新增路由必须在 mount 之前注册，否则会被静态托管吞掉；`/review` 就是靠这一点在 mount 之前注册的。
 - **Vite 构建 `outDir` 是 `../server/static`**：`build_exe.py` 又拷 `webui/dist`，两处产物要一致。

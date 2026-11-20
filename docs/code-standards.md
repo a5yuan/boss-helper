@@ -60,7 +60,8 @@ src/*  →  server.tracer（只在函数内延迟 import）
 
 ## 并发与生命周期
 
-- 同一时刻只允许一个采集任务（`Session.running`）。
+- 同一平台同一时刻只允许一个采集任务（`Session.running_for(platform)`）；不同平台可以并行。
+- 需要真实窗口焦点的操作（`bring_to_front` + 坐标点击 + 真实按键 + blur）必须持有 `src/focus_lock.foreground()`；纯 CDP / JS 操作不持锁。
 - 采集线程是 daemon 线程；停止 / 暂停通过 `GuiController` 的事件标志，循环边界必须检查。
 - 长睡眠用 `_interruptible_sleep`，不要直接 `time.sleep` 大数值。
 - `BrowserManager.disconnect()` 只断 WebSocket，不关浏览器；只有 `close()` 在 `_owns_browser` 时才杀进程。

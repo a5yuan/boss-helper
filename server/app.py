@@ -36,6 +36,8 @@ class StartParams(BaseModel):
     count: int = 20
     browser_type: str = "chrome"
     site: str = "boss"
+    # 可选的平台别名；传了就覆盖 site（run_collection 只认 site）
+    platform: str | None = None
     new_chrome: bool = False
     tag: str | None = None
     # 以下字段保留但不再由前端发起（默认关闭关键词路线）
@@ -135,11 +137,17 @@ def api_refresh_cities(browser_type: str = "chrome"):
 @app.post("/api/start")
 def api_start(params: StartParams):
 # 手动模式：用户已在浏览器里做完搜索/筛选，不在这里重复校验
-    if session.running:
-        return {"ok": False, "error": "已有任务在运行"}
+    body = _dump(params)
+    # platform 只是入参别名，不传给 run_collection
+    platform = body.pop("platform", None)
+    if platform:
+        body["site"] = platform
     trace_id = tracer.start_scope("collect-start")
     tracer.entry("app.py:api_start", "分析任务启动", params.model_dump(), scope="collect-start")
-    task_id = session.start(_dump(params))
+    try:
+        task_id = session.start(body)
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
     return {"ok": True, "task_id": task_id}
 
 
@@ -207,19 +215,14 @@ def api_results(date: str | None = None, output_dir: str | None = None):
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    # 连接时先推送当前快照，便于前端刷新后恢复状态
-    ctrl = session.controller()
-    if ctrl:
-        await ws.send_json({"type": "status", "state": ctrl.state})
-        await ws.send_json({"type": "progress", **ctrl.latest_progress})
-        if ctrl.pending_action:
-            await ws.send_json({"type": "need_action", **ctrl.pending_action})
+    # 连接时先推送所有任务的快照（含最后一次终态），便于前端刷新后恢复状态
+    for ev in session.snapshot_events():
+        await ws.send_json(ev)
     try:
         while True:
-            ctrl = session.controller()
-            if ctrl:
-                for ev in ctrl.drain():
-                    await ws.send_json(ev)
+            # 一条连接转发所有平台的采集事件，每条事件自带 task_id
+            for ev in session.drain_events():
+                await ws.send_json(ev)
             await asyncio.sleep(0.15)
     except WebSocketDisconnect:
         pass
@@ -511,7 +514,10 @@ def api_focus(body: FocusBody):
         if body.open_chat:
             result["chat"] = _click_chat(bm)
 
-        bm.bring_to_front()
+        # 只切前台，但别插进另一个平台「填招呼语」的真实输入段
+        from src.focus_lock import foreground
+        with foreground():
+            bm.bring_to_front()
         return result
 
     return _with_browser(_run, platform=platform)
