@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 任务注册表（`server/session.py`）：同一平台只允许一个任务，不同平台可以同时采集；`/api/start` 支持 `platform` 别名
+- WebSocket 事件流追加 `task_id`，连接建立时推送所有任务的快照；任务结束后保留 300 秒终态记录供前端收尾
+- 进程级前台锁（`src/focus_lock.py`）：两个平台同时采集时，填招呼语、点「立即沟通」等需要真实窗口焦点的段串行执行；纯 CDP / JS 读取与点击不持锁
+- 单条 `/ws` 连接转发所有平台的采集事件，每条事件带 `task_id`；连接建立时先推所有任务的 status / progress / need_action 快照
 - AI 筛选与招呼语管线（`src/ai/`）：按简历给岗位打分、判定投递价值、按 JD 生成招呼语
 - 简历库按岗位方向自动选择（`ai.resumes` + 关键词权重：标题 3 / 技能 2 / JD 1）
 - 复核页集成：「AI 筛选」「AI 批量填」按钮，详情区显示分数/理由/不匹配点与可编辑招呼语

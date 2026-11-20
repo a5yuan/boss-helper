@@ -12,6 +12,11 @@ import unittest
 from unittest import mock
 
 from src.collector import run_collection
+from src.adapters import registry
+
+# 记录本模块导入时已经注册的适配器：并发用例可能先跑并触发自动发现，
+# 但「假平台不是测试手工注册的」这个判据仍然成立。
+_PRELOADED = set(registry._FACTORIES)
 
 
 class FakeBrowser:
@@ -93,10 +98,8 @@ class QuietController:
 
 class TestFakePlatformRun(unittest.TestCase):
     def test_full_run_without_browser_writes_valid_json(self):
-        from src.adapters import registry
-
         # 假平台必须靠目录自动发现，测试里不允许手工注册
-        self.assertNotIn("fake", registry._FACTORIES)
+        self.assertNotIn("fake", _PRELOADED)
 
         FakeBrowser.instances.clear()
         ctrl = QuietController()
