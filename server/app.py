@@ -392,12 +392,14 @@ class FocusBody(BaseModel):
     security_id: str = ""
     encrypt_job_id: str = ""
     open_chat: bool = True  # 定位后自动点「立即沟通」打开聊天窗
+    platform: str = ""      # 复核页传入当前平台；缺省沿用岗位记录 / 默认平台
 
 
 class GreetBody(BaseModel):
     security_id: str = ""
     encrypt_job_id: str = ""
     text: str | None = None
+    platform: str = ""
 
 
 def _job_files() -> list:
@@ -436,17 +438,28 @@ def _find_job(security_id: str = "", encrypt_job_id: str = "") -> dict | None:
     return None
 
 
+def _platform_label(platform: str | None) -> str:
+    """平台显示名，只用于给用户看的错误文案。"""
+    name = platform or DEFAULT_PLATFORM
+    for p in platform_catalog():
+        if p["name"] == name:
+            return p.get("display_name") or name
+    return name
+
+
 def _with_browser(fn, prefer_chat: bool = False, platform: str | None = None):
     """连接到正在运行的调试浏览器，执行 fn(bm, page)。"""
     if session.running_for(platform):
         return {"ok": False, "error": "该平台采集任务正在运行，请先停止再定位"}
+    try:
+        adapter = create_adapter(platform)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     from src.core.browser import BrowserManager
-    from src.adapters.boss import BossAdapter
 
     bm = BrowserManager(config=get_config("chrome", platform=platform))
     if not bm.try_connect_existing():
-        return {"ok": False, "error": "没有正在运行的调试浏览器，请先跑一次采集"}
-    adapter = BossAdapter()
+        return {"ok": False, "error": f"{_platform_label(platform)} 尚未启动，先跑一次采集"}
     # 只考虑本平台真正的标签页；shared_worker 的 URL 里也含 geek-chat，不能选它
     pages = [p for p in bm.list_pages()
              if p.get("type") == "page" and adapter.owns_url(p.get("url", ""))]
@@ -458,7 +471,7 @@ def _with_browser(fn, prefer_chat: bool = False, platform: str | None = None):
         best = adapter.pick_target(bm.list_pages())
         page = best if (best and best.get("type") == "page") else (pages[0] if pages else None)
     if not page:
-        return {"ok": False, "error": "没有找到 BOSS 标签页"}
+        return {"ok": False, "error": f"没有找到 {_platform_label(platform)} 标签页"}
     try:
         bm.connect_ws(page["webSocketDebuggerUrl"])
         return fn(bm, page)
@@ -535,10 +548,8 @@ def _click_chat(bm, attempts: int = 6, interval: float = 0.35) -> dict:
 def api_focus(body: FocusBody):
     if not (body.security_id or body.encrypt_job_id):
         return {"ok": False, "error": "缺少岗位 ID"}
-    from src.adapters.boss import BossAdapter
-
     job = _find_job(body.security_id, body.encrypt_job_id) or {}
-    platform = job.get("platform") or DEFAULT_PLATFORM
+    platform = (body.platform or "").strip() or job.get("platform") or DEFAULT_PLATFORM
     eid = body.encrypt_job_id or job.get("encrypt_job_id") or ""
 
     def _run(bm, page):
@@ -546,7 +557,7 @@ def api_focus(body: FocusBody):
         clicked, pos, total = False, -1, 0
         if body.security_id:
             try:
-                click = BossAdapter(bm).click_card(body.security_id)
+                click = create_adapter(platform, page=bm).click_card(body.security_id)
                 clicked, pos, total = click["ok"], click["index"], click["total"]
             except Exception:
                 pass
@@ -594,7 +605,7 @@ def api_greet(body: GreetBody):
     if not (body.security_id or body.encrypt_job_id):
         return {"ok": False, "error": "缺少岗位 ID"}
     job = _find_job(body.security_id, body.encrypt_job_id) or {}
-    platform = job.get("platform") or DEFAULT_PLATFORM
+    platform = (body.platform or "").strip() or job.get("platform") or DEFAULT_PLATFORM
     text = (body.text or "").strip() or _default_greeting(job)
 
     def _run(bm, page):

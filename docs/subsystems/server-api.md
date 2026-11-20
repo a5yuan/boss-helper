@@ -58,8 +58,8 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 | GET | `/api/results` | 最新（或指定日期）岗位 JSON；`platform` 指定平台输出目录，不传时沿用 `output_dir` / 默认平台 |
 | WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流；连接时先推所有任务快照（快照事件带 `task_id` 与 `platform`），之后一条连接转发所有平台 |
 | GET / POST | `/api/tracking` | 投递状态；可用 `platform`（读为查询参数，写为 body 字段）指定平台，缺省为默认平台 |
-| POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗 |
-| POST | `/api/greet` | 填招呼语 |
+| POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗；`platform` 指定平台，不传时用岗位记录 / 默认平台 |
+| POST | `/api/greet` | 填招呼语；`platform` 同上 |
 | GET | `/review` | 复核队列页面 |
 | GET | `/api/ai/plan` | 读某个采集文件对应的 AI 计划（`exists=false` 表示还没筛过） |
 | POST | `/api/ai/screen` | 跑 AI 筛选并生成 `ai_plan_*.json`（采集运行中拒绝） |

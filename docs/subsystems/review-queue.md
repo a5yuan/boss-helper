@@ -17,6 +17,7 @@
 - **focus 默认打开沟通窗**：定位成功后调用 `src/js/click_chat.js` 点「立即沟通 / 继续沟通」，只点按钮、不发送任何消息；按钮找不到时返回 `chat.ok=false`，不影响定位本身。请求体传 `open_chat=false` 可关闭。
 - **greet 只填不发送**：把文本写进最后一个可见 `textarea` / `contenteditable`，发送留给人工。
 - **同平台采集运行时拒绝浏览器操作**：`_with_browser` 用 `session.running_for(platform)` 判断，只拒绝该平台的任务，别的平台在跑不影响。
+- **focus / greet 按平台执行**：请求体可带 `platform`，优先于岗位记录的 `platform`；不传时行为不变。浏览器连接、标签页归属和卡片点击都取该平台的适配器。目标平台浏览器没启动时返回「<平台> 尚未启动，先跑一次采集」。
 - **页面默认读最新文件，可切换历史文件**：`/api/results` 不带参数时取排序后的第一个 `jobs_*.json`；带 `date=<文件名>` 时取匹配文件。
 
 ## 依赖方向
@@ -45,6 +46,8 @@ src.tracking → src.config（延迟 import）
 
 ## 已知陷阱
 
+- **AI 接口仍未按平台隔离**：`/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting`、`/api/ai/fill` 都不收 `platform`，复核页在非默认平台禁用「AI 筛选」「AI 批量填」，避免读写默认平台的计划与输出目录。
+- **`_find_job` 只查默认平台输出目录**：非默认平台的岗位查不到记录，`/api/greet` 的默认招呼语会退化成「这个岗位」；显式传 `text` 不受影响。`/api/focus` 里点不到卡片时的 URL 回退仍拼 BOSS 详情地址，非 BOSS 平台不要依赖这条回退。
 - **旧数据缺 `encrypt_job_id`**：只能在同一页面会话内用 `security_id` 定位，刷新后失效；前端会显示"无ID / 旧数据"提示，重新采集可修复。
 - **URL 回退会离开列表页**：`job_detail/<eid>.html` 打开后，原搜索结果页状态丢失；需要回列表时用浏览器后退。
 - **`prefer_chat=True`**：`/api/greet` 优先连最后一个 URL 含 `chat` 的 `type=page` 标签；没有聊天页时退回普通 BOSS 页，可能找不到输入框。

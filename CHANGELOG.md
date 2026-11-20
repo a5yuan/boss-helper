@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `/api/focus`、`/api/greet` 接受可选 `platform`（请求体）：复核页切到非默认平台后，「定位并沟通」「填招呼语」作用在该平台的浏览器上；不传时仍按岗位记录 / 默认平台。目标平台浏览器未启动时返回「<平台> 尚未启动，先跑一次采集」
 - 平台目录 `GET /api/platforms`：从已注册适配器发现平台名与显示名；`/api/results` 支持 `platform`，`/api/tracking` 读写支持 `platform`
 - 前端多任务视图：按平台分标签、每个任务独立的进度 / 日志 / 确认框；单任务时不显示标签栏，外观与之前一致
 - 任务注册表（`server/session.py`）：同一平台只允许一个任务，不同平台可以同时采集；`/api/start` 支持 `platform` 别名

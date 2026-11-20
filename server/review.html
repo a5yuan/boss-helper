@@ -274,7 +274,7 @@ async function focusJob() {
   const sid = keyOf(j);
   if (!sid) { toast('缺少岗位 ID', 'err'); return; }
   try {
-    const r = await api('/api/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idsOf(j)) });
+    const r = await api('/api/focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...idsOf(j), platform: state.platform }) });
     if (!r.ok) { toast('定位失败: ' + (r.error || '未知'), 'err'); return; }
     if (r.chat && r.chat.ok) toast('已定位并点击「立即沟通」，聊天窗已打开', 'ok');
     else toast('已定位，但没点到「立即沟通」' + (r.chat && r.chat.reason ? '：' + r.chat.reason : ''), 'err');
@@ -286,7 +286,7 @@ async function greet() {
   const sid = keyOf(j);
   if (!sid) { toast('缺少岗位 ID', 'err'); return; }
   try {
-    const r = await api('/api/greet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(idsOf(j)) });
+    const r = await api('/api/greet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...idsOf(j), platform: state.platform }) });
     toast(r.ok ? ('已填入输入框：' + (r.filled || '')) : ('填充失败: ' + (r.error || '未知')), r.ok ? 'ok' : 'err');
   } catch (e) { toast('填充失败: ' + e.message, 'err'); }
 }
