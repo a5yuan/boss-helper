@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 平台目录 `GET /api/platforms`：从已注册适配器发现平台名与显示名；`/api/results` 支持 `platform`，`/api/tracking` 读写支持 `platform`
+- 前端多任务视图：按平台分标签、每个任务独立的进度 / 日志 / 确认框；单任务时不显示标签栏，外观与之前一致
 - 任务注册表（`server/session.py`）：同一平台只允许一个任务，不同平台可以同时采集；`/api/start` 支持 `platform` 别名
 - WebSocket 事件流追加 `task_id`，连接建立时推送所有任务的快照；任务结束后保留 300 秒终态记录供前端收尾
 - 进程级前台锁（`src/focus_lock.py`）：两个平台同时采集时，填招呼语、点「立即沟通」等需要真实窗口焦点的段串行执行；纯 CDP / JS 读取与点击不持锁

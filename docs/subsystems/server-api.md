@@ -46,17 +46,18 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
+| GET | `/api/platforms` | 已注册平台（`name` + `display_name`），默认平台排第一；导入 `src/adapters` 下的模块触发自注册，不按平台名写分支 |
 | GET / POST | `/api/config` | 浏览器路径、输出目录 |
-| GET / POST | `/api/start-params` | 运行参数持久化（白名单，含 `speed`: `slow` / `normal` / `fast`） |
+| GET / POST | `/api/start-params` | 运行参数持久化（白名单，含 `speed`: `slow` / `normal` / `fast`、`site` 平台） |
 | POST | `/api/start-params/reset` | 重置默认 |
 | GET | `/api/cities` | 城市列表（缓存优先） |
 | POST | `/api/cities/refresh` | 页内 fetch `city.json` |
 | POST | `/api/start` / `stop` / `pause` / `resume` | 任务控制；start 返回 `task_id`（`site` 或别名 `platform` 指定平台），其余可用 `task_id` 指定目标任务，缺省为当前任务 |
 | GET | `/api/status` | 运行状态、进度、待办动作；可用 `task_id` 查指定任务 |
 | POST | `/api/ack` | 用户完成扫码 / 确认；可用 `task_id` 指定目标任务 |
-| GET | `/api/results` | 最新（或指定日期）岗位 JSON |
-| WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流；连接时先推所有任务快照，之后一条连接转发所有平台，事件自带 `task_id` |
-| GET / POST | `/api/tracking` | 投递状态 |
+| GET | `/api/results` | 最新（或指定日期）岗位 JSON；`platform` 指定平台输出目录，不传时沿用 `output_dir` / 默认平台 |
+| WS | `/ws` | 日志 / 进度 / 状态 / need_action 事件流；连接时先推所有任务快照（快照事件带 `task_id` 与 `platform`），之后一条连接转发所有平台 |
+| GET / POST | `/api/tracking` | 投递状态；可用 `platform`（读为查询参数，写为 body 字段）指定平台，缺省为默认平台 |
 | POST | `/api/focus` | 浏览器定位，并默认点击「立即沟通」打开聊天窗 |
 | POST | `/api/greet` | 填招呼语 |
 | GET | `/review` | 复核队列页面 |
@@ -74,7 +75,9 @@ webui → /api, /ws（HTTP/WS，不 import Python）
 - **同步路由会占线程池**：`/api/focus`、`/api/greet` 内部同步操作浏览器（含 `time.sleep`），并发请求会排队。
 - **`_with_browser` 在采集运行时直接拒绝**：这是有意的，不要改成并发连接同一个浏览器。
 - **终态记录只保留 300 秒**：`/api/status` 在这段时间内仍返回最后一次进度和 state，前端据此显示"已停止"。
-- **`current_task_id` 指向最后一次 `start` 的任务**：不传 `task_id` 的 status / stop 走的仍是它；多平台并行时前端必须按 `task_id` 取状态（Phase 3）。
+- **`current_task_id` 指向最后一次 `start` 的任务**：不传 `task_id` 的 status / stop 走的仍是它；多平台并行时前端必须按 `task_id` 取状态。
+- **快照只推活任务**：有活任务时，终态任务不会出现在连接快照里；已停止的标签页刷新后会消失，活页面里仍保留。快照不带日志，刷新后日志从空开始。
+- **`/api/platforms` 有进程内缓存**：新装或删掉平台目录后要重启服务才会刷新列表。
 - **状态按 `task_id` 索引**：`/api/focus`、`/api/greet` 只在同平台任务运行时拒绝，不会因为别的平台任务在跑就拒绝。
 - **`StaticFiles` 挂在 `/`**：新增路由必须在 mount 之前注册，否则会被静态托管吞掉；`/review` 就是靠这一点在 mount 之前注册的。
 - **Vite 构建 `outDir` 是 `../server/static`**：`build_exe.py` 又拷 `webui/dist`，两处产物要一致。
