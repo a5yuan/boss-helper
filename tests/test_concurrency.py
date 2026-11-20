@@ -233,7 +233,7 @@ class _Env:
 
 
 def _wait(thread, timeout=15.0):
-    """线程为空说明任务在 start 返回前就已结束并转入终态记录。"""
+    """线程为空说明任务已结束并转入终态记录。"""
     if thread is None:
         return True
     thread.join(timeout)

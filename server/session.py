@@ -205,7 +205,6 @@ class Session:
                 "platform": platform,
             }
             self.tasks[task_id] = task
-            # current_task_id / last_params 仍按最后一次 start 更新
             self.current_task_id = task_id
             self.last_params = params
 

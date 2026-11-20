@@ -15,7 +15,8 @@
 - 标签页选择只考虑 `type == "page"`；`shared_worker` 的 URL 也可能含 `geek-chat`，必须排除。
 - 端口文件写入失败不影响主流程。
 - **真实前台段必须串行**：`bring_to_front` + 坐标点击 + 真实按键 + blur 会抢进程级窗口焦点，
-  这一段必须持有 `src/focus_lock.foreground()`；纯 CDP / JS 读取与点击不持锁，否则会拖慢并发采集。
+  这一段必须在同一个 `src/focus_lock.foreground()` 段内完成；采集侧的纯 CDP / JS 读取与点击
+  不持锁，否则会拖慢并发采集。填字后读长度、点会话后判断输入框就绪属于同一次前台事务，留在锁内。
 
 ## 依赖方向
 

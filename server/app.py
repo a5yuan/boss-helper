@@ -138,7 +138,6 @@ def api_refresh_cities(browser_type: str = "chrome"):
 def api_start(params: StartParams):
 # 手动模式：用户已在浏览器里做完搜索/筛选，不在这里重复校验
     body = _dump(params)
-    # platform 只是入参别名，不传给 run_collection
     platform = body.pop("platform", None)
     if platform:
         body["site"] = platform
@@ -215,7 +214,7 @@ def api_results(date: str | None = None, output_dir: str | None = None):
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    # 连接时先推送所有任务的快照（含最后一次终态），便于前端刷新后恢复状态
+    # 连接时先推活任务快照；没有活任务时退回最后一次终态，前端刷新后能恢复状态
     for ev in session.snapshot_events():
         await ws.send_json(ev)
     try:
