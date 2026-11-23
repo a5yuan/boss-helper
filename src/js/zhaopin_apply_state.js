@@ -21,7 +21,9 @@
       ? user.length > 0
       : !!(user && typeof user === 'object' && Object.keys(user).length);
     // selectedJobId 是 SSR 首屏快照，hydrate 之后点卡片不会回写它（实测：
-    // 点完卡片详情标题变了，这个字段纹丝不动）。所以先看 DOM，再看快照。
+    // 点完卡片详情标题变了，这个字段纹丝不动）。DOM 能读到标题时以 DOM 为准，
+    // 读不到才退回快照。两者取并集会在「点了别的卡片」时把过期快照当真，
+    // 对着错的岗位返回「已选中」并给出投递按钮坐标。
     const norm = s => String(s == null ? '' : s).replace(/\s+/g, '').trim();
     const titleEl = document.querySelector('.job-detail-summary__title-text');
     const panelEl = document.querySelector('.job-detail-panel')
@@ -33,7 +35,7 @@
       && (!item.companyName || panelText.indexOf(norm(item.companyName)) >= 0);
     const snapshotSelected = String(state.selectedJobId || '') === String(item.number || '')
       || String(state.selectedJobId || '') === String(item.jobId || '');
-    const selected = domSelected || snapshotSelected;
+    const selected = domTitle ? domSelected : snapshotSelected;
 
     let button = { found: false };
     if (selected) {
