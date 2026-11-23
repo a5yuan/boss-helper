@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 智联 JS 探针的真执行测试：`tests/js/` 用零依赖 DOM shim + `node --test` 跑 `src/js/zhaopin_*.js`，`tests/test_js_probes.py` 把结果并进 `python -m unittest`；没有 node 时跳过。新增探针必须有对应测试文件
 - 投递能力契约（`delivery_mode`）：`prefill_chat`（BOSS，只填不发）/ `apply_then_chat`（智联，投递后进聊天发一条）/ `unsupported`；引擎 `src/ai/apply.py` 按能力分支，不按站点名分支。智联投递受 `apply.enabled`、`apply.send_message`、`apply.daily_limit` 三道闸控制（默认全关），投前查 `hasAppliedPosition`/`applyType` 幂等，成功后 tracking 记 `applied`，每次动作追加 `output/zhaopin/apply_audit.log`；新增只读体检 `python -m src.ai apply-check --site zhaopin --job-id <number>`。BOSS 行为不变
 - 智联招聘（`zhaopin`）只读采集适配器：从 SSR `__INITIAL_STATE__.positionList` 读首屏 20 条与完整 JD，城市码实测 653 = 杭州；投递侧返回 `unsupported:`；`config.yaml` 支持 `zhaopin:` 平台段覆盖浏览器 / profile / 输出目录 / 端口文件
 - `/api/ai/plan`、`/api/ai/screen`、`/api/ai/greeting`、`/api/ai/fill` 接受可选 `platform`，AI 计划按平台读写（`output/{platform}/ai_plan_*.json`）；复核页在非默认平台可用「AI 筛选」「AI 批量填」与招呼语编辑

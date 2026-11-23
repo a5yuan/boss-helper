@@ -77,6 +77,10 @@ src/*  →  server.tracer（只在函数内延迟 import）
 - 已有最小单元测试（`tests/`，stdlib `unittest`）。改动前先跑：
   `.venv/Scripts/python -m unittest discover -s tests -v`
 - 纯逻辑改动（薪资解析、查重、状态机、ID 规则）必须补测试；涉及浏览器 / CDP 的改动仍以可复现的手动步骤为准。
+- **JS 探针必须真执行**：`src/js/zhaopin_*.js` 由 `tests/js/*.test.mjs` 用 `node --test`
+  在 DOM shim 里跑，`tests/test_js_probes.py` 再把结果并进 unittest。新增探针必须同时加测试
+  （`test_every_zhaopin_probe_has_a_test_file` 会拦）。Node 22 不接受目录参数，命令是
+  `node --test tests/js/*.test.mjs`；没有 node 时该用例 skip，不算失败。
 - 改动必须给出可复现的手动验证步骤：启动命令、操作路径、预期输出（文件 / 接口 / 界面）。步骤写进提交说明或 PR 描述。
 - 一个 commit 只做一件事；message 说清"为什么"，diff 说明"是什么"。
 - 行为变化同步 `CHANGELOG.md`。
