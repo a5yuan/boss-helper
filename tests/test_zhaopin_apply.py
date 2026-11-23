@@ -303,6 +303,9 @@ class FakeTracker:
     def all(self):
         return self.data
 
+    def get(self, key):
+        return self.data.get(key, {})
+
     def set(self, key, status, note=""):
         self.set_calls.append((key, status, note))
         return {"status": status, "note": note}
@@ -348,6 +351,20 @@ class TestApplyEngine(unittest.TestCase):
             result = run_apply(adapter, {"job_id": JOB_ID}, "你好", tracker=tracker, config=cfg)
         self.assertEqual(result["reason"], "skipped: daily_limit")
         self.assertEqual(adapter.apply_calls, [])
+
+    def test_tracker_says_applied_blocks_before_touching_adapter(self):
+        """页面字段可能因为列表刷新而说不准，但投过就是投过。"""
+        adapter = StubAdapter()
+        tracker = FakeTracker({
+            JOB_ID: {"status": "applied", "note": "杭州千悟智能 AI全栈工程师",
+                     "updated_at": "2026-11-23T18:17:25"},
+        })
+        result = run_apply(adapter, {"job_id": JOB_ID}, "你好",
+                           tracker=tracker, config=GATES_ON)
+        self.assertIs(result["submitted"], False)
+        self.assertEqual(result["reason"], "skipped: already_applied")
+        self.assertEqual(adapter.apply_calls, [])
+        self.assertEqual(adapter.send_calls, [])
 
     def test_submit_writes_applied_status_and_sends(self):
         adapter = StubAdapter()

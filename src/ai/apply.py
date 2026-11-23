@@ -119,6 +119,18 @@ def run_apply(adapter, job: dict, text: str, tracker: Tracker | None = None,
         return {"ok": False, "mode": mode, "submitted": False, "sent": False,
                 "reason": "skipped: daily_limit"}
 
+    # 先查 tracker 再碰页面：列表里同一岗位可能重新出现，页面字段会说不准，
+    # 但投过就是投过。这条挡在 apply() 前面，避免二次投递。
+    key = track_key("", job_id)
+    try:
+        prior = tracker.get(key) or {}
+    except Exception as exc:  # noqa: BLE001
+        log(f"[apply] 读 tracking 失败，按未投处理: {exc}")
+        prior = {}
+    if prior.get("status") == "applied":
+        return {"ok": True, "mode": mode, "submitted": False, "sent": False,
+                "reason": "skipped: already_applied", "tracking": prior}
+
     result = dict(adapter.apply(job_id) or {})
     result["mode"] = mode
     if not result.get("submitted"):

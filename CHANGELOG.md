@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 智联投递前先查 `tracking.json`：状态为 `applied` 的岗位直接跳过（`skipped: already_applied`），不再只依赖会随列表刷新失效的页面字段；读 tracking 失败按未投处理并记日志
 - `tracking.py` 的 `os.replace` 在 Windows 遇到读句柄占用时不再裸崩：清理临时文件并抛 `TrackingError`，接口返回 `{ok:false,error}`
 - 采集在列表到底且连续无新卡片时不再死循环：连续 2 轮无新岗位触发刷新，最多刷新 2 次后正常结束，进度显示已处理数量
 

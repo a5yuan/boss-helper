@@ -51,10 +51,13 @@ apply:
 ```
 
 - 两个开关都开才走 `apply_then_chat`，否则返回 `unsupported: apply_disabled`。
-- 没有 `Tracker` 也拒绝投递（`unsupported: no_tracker`）——查重和计数都靠它。
-- 幂等：点之前读 `positionList[i]` 的 `alreadyApply` / `hasAppliedPosition` /
-  `applyType`；已投过的返回 `skipped: already_applied`，绝不重复投。
-  `applyType` 只实测过 `"1"`（未投递），未知编码按已投处理，宁可漏投不重复投。
+- 没有 `Tracker` 也拒绝投递（`unsupported: no_tracker`）。查重和计数都靠它。
+- 幂等分两层。`run_apply` 先查 `tracking.json`：状态为 `applied` 时直接返回
+  `skipped: already_applied`，不碰页面；读 tracking 失败按未投处理并记日志。
+  页面字段是第二层：点之前读 `positionList[i]` 的 `alreadyApply` /
+  `hasAppliedPosition` / `applyType`。列表刷新后岗位可能不在结果里，页面字段
+  说不准，所以 tracker 这层不能省。`applyType` 只实测过 `"1"`（未投递），
+  未知编码按已投处理，宁可漏投不重复投。
 - 登录态：`state.user` 非空才算登录；游客态直接返回 `unsupported: login_required`，
   不点按钮，避免弹登录框。
 - 选中校验：投递按钮只作用于详情面板当前岗位，点之前核对 `selectedJobId`；
