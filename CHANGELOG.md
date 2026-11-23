@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `tracking.py` 的 `os.replace` 在 Windows 遇到读句柄占用时不再裸崩：清理临时文件并抛 `TrackingError`，接口返回 `{ok:false,error}`
+- 采集在列表到底且连续无新卡片时不再死循环：连续 2 轮无新岗位触发刷新，最多刷新 2 次后正常结束，进度显示已处理数量
 
 ### Added
 

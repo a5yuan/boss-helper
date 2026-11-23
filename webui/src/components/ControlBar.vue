@@ -92,7 +92,7 @@ function openReview() {
         <span class="font-medium text-fg-muted">
           {{ engine.statusLabel }}
           <span v-if="engine.running && engine.progress.total > 0" class="text-fg-subtle ml-1">
-            ({{ engine.progress.done }} / {{ engine.progress.total }})
+            已处理 {{ stats.processed || 0 }} · 成功 {{ engine.progress.done }} / {{ engine.progress.total }}
           </span>
         </span>
         <span

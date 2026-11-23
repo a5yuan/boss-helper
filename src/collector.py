@@ -37,6 +37,11 @@ from src.storage.writer import OutputWriter
 from src.control import ConsoleController
 
 
+# 列表收敛：连续这么多轮没有新卡片就刷新；刷新次数用尽仍无新数据即判定到底
+STALE_ROUNDS_BEFORE_RELOAD = 2
+MAX_LIST_RELOADS = 2
+
+
 def _safe_tag(text):
     """把搜索关键词转成可用于文件名的标记（去除非法字符）。"""
     if not text:
@@ -563,13 +568,18 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     vue_hit = 0       # Vue 面板直读成功次数 (本地读取)
     start_idx = len(writer.all_jobs) + 1
     processed_sids = set()
+    processed_count = 0       # 累计处理过的卡片数（跳过的也算）
+    stale_rounds = 0          # 连续无新卡片的轮数
+    reloads = 0               # 已刷新列表次数
+    bottom_reached = False    # 刷新用尽仍无新数据
+    reload_failed = False
     last_scroll_top = -1  # 追踪滚动位置
 
     def _emit_progress():
         ctrl.progress(success_count, count, {
             "success": success_count, "fail": fail_count, "skip": skip_count,
             "offline": offline_count, "online_unknown": online_unknown_count,
-            "vue_hit": vue_hit,
+            "vue_hit": vue_hit, "processed": processed_count,
         })
 
     _emit_progress()
@@ -583,6 +593,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 break
 
         prev_success_count = success_count
+        prev_processed_count = processed_count
 
         # 每次循环开始都重新提取一次列表，确保数据是最新的
         jobs = adapter.list_jobs().get("jobs") or []
@@ -645,6 +656,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 break
 
             processed_sids.add(sid)
+            processed_count += 1
             job_name = card.get("title", "?")
             brand_name = card.get("company", "")
 
@@ -772,6 +784,32 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             # === 间隔休息（按速度档位）===
             behavior.maybe_step_break(success_count, lambda s: _interruptible_sleep(ctrl, s))
 
+        # === 列表收敛：连续无新卡片就刷新，刷新用尽即判定到底，避免空转 ===
+        new_in_round = processed_count - prev_processed_count
+        if new_in_round:
+            stale_rounds = 0
+        else:
+            stale_rounds += 1
+            ctrl.log(
+                f"   [*] 本轮没有新岗位（连续 {stale_rounds}/{STALE_ROUNDS_BEFORE_RELOAD} 轮）"
+            )
+
+        if not ctrl.should_stop() and stale_rounds >= STALE_ROUNDS_BEFORE_RELOAD:
+            if reloads >= MAX_LIST_RELOADS:
+                bottom_reached = True
+                ctrl.log(f"   [*] 刷新 {reloads} 次仍无新岗位，判定列表已到底")
+                break
+            reloads += 1
+            reloaded = adapter.reload()
+            if not reloaded.get("ok"):
+                reload_failed = True
+                ctrl.log(f"   [!] 刷新列表失败: {reloaded.get('reason') or '未知原因'}")
+                break
+            ctrl.log(f"   [*] 刷新列表（第 {reloads}/{MAX_LIST_RELOADS} 次），重新提取 ...")
+            stale_rounds = 0
+            adapter.wait_results()
+            continue
+
         # === for 结束后：如果没有任何进展（全部跳过），触发滚动加载更多 ===
         if success_count == prev_success_count and not ctrl.should_stop():
             _dt("H4", "run_collection", "scroll_for_more_start", {"success": success_count, "prev": prev_success_count})
@@ -793,6 +831,11 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         ctrl.log(f"   离线:   {offline_count} 条 (公司不在线)")
     if online_unknown_count:
         ctrl.log(f"   状态未知: {online_unknown_count} 条 (已放行)")
+    if bottom_reached:
+        ctrl.log(
+            f"   已滚动到底, 连续 {STALE_ROUNDS_BEFORE_RELOAD} 轮无新岗位, "
+            f"刷新 {reloads} 次仍无新数据, 成功 {success_count} 条, 跳过 {skip_count} 条."
+        )
     ctrl.log(f"   -------")
     ctrl.log(f"   Vue面板直读(currentJob): {vue_hit} 次")
     ctrl.log(f"   JSON:   {writer.json_path}")
@@ -802,10 +845,21 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     ctrl.log(f"\n   [*] {browser_type.capitalize()} 保持运行 (端口 {browser.port})，下次可复用")
 
     browser.disconnect()
+
+    if success_count >= count:
+        reason = "target"
+    elif stopped:
+        reason = "stopped"
+    elif reload_failed:
+        reason = "reload_failed"
+    else:
+        reason = "bottom"
+
     result = {
         "success": success_count, "fail": fail_count, "skip": skip_count,
         "offline": offline_count, "online_unknown": online_unknown_count,
         "json": writer.json_path, "md": writer.md_path, "total": len(writer.all_jobs),
+        "reason": reason,
     }
     ctrl.status("stopped" if stopped else "done", result)
     return result
