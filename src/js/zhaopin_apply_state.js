@@ -1,7 +1,8 @@
 /* zhaopin:apply-state — 读投递前的状态，不做任何点击。
    数据来源：
    - positionList[i]：alreadyApply / hasAppliedPosition / applyType 判断是否已投；
-   - selectedJobId：右侧详情面板当前展示的是哪条岗位，必须与目标一致才能点；
+   - 详情面板 DOM：标题与公司跟目标岗位比对，对得上才算选中（主判据）；
+   - selectedJobId：SSR 快照，hydrate 后不再更新，只在 DOM 读不到时兜底；
    - state.user：游客页为 []，非空才算登录（投递需要登录态）。
    按钮实测选择器：button.job-detail-summary__apply（文案「立即投递」），
    只在详情面板选中目标岗位后才返回。 */
@@ -19,8 +20,20 @@
     const loggedIn = Array.isArray(user)
       ? user.length > 0
       : !!(user && typeof user === 'object' && Object.keys(user).length);
-    const selected = String(state.selectedJobId || '') === String(item.number || '')
+    // selectedJobId 是 SSR 首屏快照，hydrate 之后点卡片不会回写它（实测：
+    // 点完卡片详情标题变了，这个字段纹丝不动）。所以先看 DOM，再看快照。
+    const norm = s => String(s == null ? '' : s).replace(/\s+/g, '').trim();
+    const titleEl = document.querySelector('.job-detail-summary__title-text');
+    const panelEl = document.querySelector('.job-detail-panel')
+      || document.querySelector('.job-detail-summary');
+    const domTitle = norm(titleEl && titleEl.innerText);
+    const panelText = norm(panelEl && panelEl.innerText);
+    const domSelected = !!domTitle
+      && domTitle === norm(item.name)
+      && (!item.companyName || panelText.indexOf(norm(item.companyName)) >= 0);
+    const snapshotSelected = String(state.selectedJobId || '') === String(item.number || '')
       || String(state.selectedJobId || '') === String(item.jobId || '');
+    const selected = domSelected || snapshotSelected;
 
     let button = { found: false };
     if (selected) {
