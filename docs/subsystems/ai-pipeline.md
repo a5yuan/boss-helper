@@ -52,16 +52,17 @@ apply:
 
 - 两个开关都开才走 `apply_then_chat`，否则返回 `unsupported: apply_disabled`。
 - 没有 `Tracker` 也拒绝投递（`unsupported: no_tracker`）。查重和计数都靠它。
-- 幂等分两层。`run_apply` 先查 `tracking.json`：状态为 `applied` 时直接返回
+- 幂等分两层。第一层查 `tracking.json`：`status` 为 `applied` 时直接返回
   `skipped: already_applied`，不碰页面；读 tracking 失败按未投处理并记日志。
-  页面字段是第二层：点之前读 `positionList[i]` 的 `alreadyApply` /
+  第二层查页面字段：点之前读 `positionList[i]` 的 `alreadyApply` /
   `hasAppliedPosition` / `applyType`。列表刷新后岗位可能不在结果里，页面字段
-  说不准，所以 tracker 这层不能省。`applyType` 只实测过 `"1"`（未投递），
-  未知编码按已投处理，宁可漏投不重复投。
+  说不准，所以第一层不能省。`applyType` 只实测过 `"1"`（未投递），未知编码按
+  已投处理，宁可漏投不重复投。
 - 登录态：`state.user` 非空才算登录；游客态直接返回 `unsupported: login_required`，
   不点按钮，避免弹登录框。
-- 选中校验：投递按钮只作用于详情面板当前岗位，点之前核对 `selectedJobId`；
-  不一致先点列表卡片并回读确认，确认不了就放弃。
+- 选中校验：以详情面板 DOM 为准。标题要对上，岗位有公司名时面板里也要出现
+  公司名。`selectedJobId` 是 SSR 首屏快照，hydrate 后点卡片不回写，只在 DOM
+  标题读不到时兜底。未选中时先点列表卡片并回读确认，确认不了就放弃。
 - 结果如实：只有弹窗确认「已向对方发送简历和打招呼语」才 `submitted=true`；
   消息只有回读到进入聊天记录才 `sent=true`，否则 false 并给出 `reason`。
 - 留痕：每次 `apply` / `send_message` 追加一行 JSON 到
@@ -138,7 +139,9 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 - **填完别立刻导航**：平台存草稿有延迟，填完等 2.5s 再走，否则草稿丢失；已在聊天页时收尾不要再 `location.href` 一次。
 - **详情页返回空 JD**：BOSS 对未登录 / 频繁访问会返回脱敏内容；`screen` 遇到 `jd` 为空应直接判 `skip` 并在理由里写明，不要硬编招呼语。
 - **智联的投递按钮属于「当前选中岗位」**：`button.job-detail-summary__apply` 没有岗位 id，
-  只对右侧详情面板生效。点之前必须核对 `selectedJobId`，不一致先点卡片再回读确认。
+  只对右侧详情面板生效。点之前必须核对详情面板的标题与公司，不能只看
+  `selectedJobId`：它是 SSR 快照，点完别的卡片不回写，会指向过期的岗位。
+  未选中时先点卡片再回读确认。
 - **智联聊天页选择器尚未在登录态下实测**：`zhaopin_chat_read.js` 用的是通用的
   textarea / contenteditable 与 class 关键字兜底。首次真投前，必须在登录态下
   `apply-check` 后人工看一遍聊天页，确认「发送」按钮与消息节点能被识别；
