@@ -19,7 +19,14 @@ zhaopin:
   output_dir: ""      # 留空 = output/zhaopin
   port_file: ""       # 留空 = .cdp_port_zhaopin_<browser>
   speed: ""           # 预留：实际速度仍由运行参数 speed 决定
-  daily_limit: 0      # 预留：投递侧未实现，只读采集不消费
+
+# ===== 投递开关（默认全关）=====
+# 两个开关都打开才允许 apply_then_chat（目前只有智联）。
+# 点「立即投递」不可逆：会同时投简历 + 发平台预设打招呼语。
+apply:
+  enabled: false        # 允许执行不可逆投递
+  send_message: false   # 允许投递后进聊天再发一条消息
+  daily_limit: 0        # 0 = 不限；>0 按当天 applied 状态条数截断
 
 humanize:
   # 注意：当前版本采集节奏由 start_params.speed（slow / normal / fast）控制，

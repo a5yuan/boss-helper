@@ -1,10 +1,12 @@
-"""CLI：python -m src.ai <screen|dispatch|ping>
+"""CLI：python -m src.ai <screen|dispatch|ping|apply-check>
 
-    screen   读 jobs_*.json → 调模型打分 → 写 ai_plan_*.json（不碰浏览器）
-    dispatch 读 ai_plan_*.json → 逐条点沟通 + 填招呼语 → 跳聊天页（只填不发）
-    ping     验证模型通道
+    screen       读 jobs_*.json → 调模型打分 → 写 ai_plan_*.json（不碰浏览器）
+    dispatch     读 ai_plan_*.json → 逐条点沟通 + 填招呼语 → 跳聊天页（只填不发）
+    apply-check  只读体检投递前置条件，不点任何按钮
+    ping         验证模型通道
 """
 import argparse
+import json
 import os
 import sys
 
@@ -89,6 +91,26 @@ def cmd_dispatch(args):
     return 0 if stats["failed"] == 0 else 2
 
 
+def cmd_apply_check(args):
+    """只读：连浏览器、读投递状态与按钮，不点击。"""
+    from src.ai.apply import connect, readiness
+    try:
+        bm, adapter = connect(args.site, args.browser)
+    except RuntimeError as exc:
+        print(f"[-] {exc}")
+        return 1
+    try:
+        result = readiness(adapter, args.job_id)
+    finally:
+        bm.disconnect()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result["ok"]:
+        print("\n[+] 前置条件齐了（仍未投递，要真投需要另开执行入口）")
+        return 0
+    print("\n[!] 还差：" + "；".join(result.get("missing") or []))
+    return 1
+
+
 def main():
     ap = argparse.ArgumentParser(prog="python -m src.ai", description="BOSS-Helper AI 筛选与招呼语")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -120,6 +142,12 @@ def main():
     p.add_argument("--wait-open", type=float, default=90.0,
                    help="交互模式下每条等待人工打开会话的秒数")
     p.set_defaults(fn=cmd_dispatch)
+
+    p = sub.add_parser("apply-check", help="只读体检投递前置条件（不点按钮）")
+    p.add_argument("--site", required=True, help="平台名，如 zhaopin")
+    p.add_argument("--job-id", required=True, help="岗位 ID（智联为 number）")
+    p.add_argument("-b", "--browser", default="chrome", choices=["chrome", "edge"])
+    p.set_defaults(fn=cmd_apply_check)
 
     args = ap.parse_args()
     sys.exit(args.fn(args) or 0)

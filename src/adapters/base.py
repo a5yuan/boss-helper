@@ -100,11 +100,47 @@ class FillResult(TypedDict, total=False):
     tag: str
 
 
+class ApplyResult(TypedDict, total=False):
+    ok: bool
+    reason: str
+    submitted: bool     # 只有确认平台真的收下了简历才为 True
+    evidence: dict
+
+
+class ApplyState(TypedDict, total=False):
+    ok: bool
+    reason: str
+    found: bool
+    index: int
+    company: str
+    title: str
+    logged_in: bool
+    selected: bool
+    already_apply: bool
+    has_applied_position: bool
+    apply_type: Any
+    button: dict        # {found, text, disabled, x, y}
+
+
+class SendResult(TypedDict, total=False):
+    ok: bool
+    reason: str
+    sent: bool          # 只有消息真的进了聊天记录才为 True
+    length: int
+    evidence: dict
+
+
 class PlatformAdapter(Protocol):
     """一个招聘站点的页面操作全集。"""
 
     site: str
     display_name: str   # 日志与提示里显示的平台名
+
+    # 投递能力声明。引擎按它分支，不按站点名分支：
+    #   prefill_chat     打开聊天窗并填话术，不发送（BOSS）
+    #   apply_then_chat  点投递（不可逆）→ 进聊天 → 发一条消息（智联）
+    #   unsupported      这个平台不支持投递
+    delivery_mode: str
 
     def owns_url(self, url: str) -> bool: ...
 
@@ -149,3 +185,10 @@ class PlatformAdapter(Protocol):
     def chat_url(self) -> str: ...
 
     def fill_greeting(self, text: str, attempts: int = 4) -> FillResult: ...
+
+    # ── 投递侧（能力按 delivery_mode 分支，调用前必须过配置闸） ──────────
+    def apply_state(self, job_id: str) -> ApplyState: ...
+
+    def apply(self, job_id: str) -> ApplyResult: ...
+
+    def send_message(self, text: str) -> SendResult: ...

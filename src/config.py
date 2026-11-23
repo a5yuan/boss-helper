@@ -294,6 +294,26 @@ def get_config(browser_type="chrome", platform=None):
 CONFIG = get_config("chrome")
 
 
+def load_apply_config() -> dict:
+    """投递开关。默认全关：任何不可逆动作都必须由用户显式打开。
+
+    ``enabled`` 允许点「立即投递」，``send_message`` 允许进聊天后发消息；
+    两个都开才走 ``apply_then_chat``。``daily_limit`` 0 表示不限。
+    """
+    raw = _read_yaml().get("apply") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    try:
+        daily_limit = int(raw.get("daily_limit", 0) or 0)
+    except (TypeError, ValueError):
+        daily_limit = 0
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "send_message": bool(raw.get("send_message", False)),
+        "daily_limit": daily_limit,
+    }
+
+
 def load_ai_config() -> dict:
     """AI 筛选 / 招呼语配置。密钥优先取 config.yaml 的 ai.api_key，其次环境变量。
 

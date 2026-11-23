@@ -1,8 +1,12 @@
-"""智联招聘适配器：只读采集，投递侧明确不支持。
+"""智联招聘适配器：只读采集 + ``apply_then_chat`` 投递。
 
 数据只来自浏览器已渲染页面里的 ``window.__INITIAL_STATE__``，Python 侧
 不向 zhaopin.com 发任何 HTTP 请求。搜索页未登录也能读首屏 20 条与完整
 JD，所以 ``probe_login`` 的 ``in`` 含义是「页面可读」，不是「账号已登录」。
+
+投递：智联点「立即投递」会同时投简历 + 发平台预设打招呼语（不可逆），
+之后弹窗「继续沟通」进聊天。只有配置里 ``apply.enabled`` 与
+``apply.send_message`` 都打开，且页面已登录、岗位未投过时才允许点。
 
 已知站点限制（实测，不再联网验证）：
 - 搜索页只 SSR 首屏 20 条；加 ``p`` / ``page`` / ``pageIndex`` 或滚动都不会
@@ -10,6 +14,10 @@ JD，所以 ``probe_login`` 的 ``in`` 含义是「页面可读」，不是「�
 - 薪资 / 学历 / 经验下拉筛选没有可寻址编码，点了不改 URL 也不产生请求，
   所以 ``search_url`` 不拼这些参数。
 - 点卡片不会更新 state 里的详情，详情直接读 ``positionList[i].jobDetailData``。
+- 投递按钮 ``button.job-detail-summary__apply`` 只作用于右侧详情面板当前
+  选中的岗位；点之前必须核对 ``selectedJobId`` 与目标一致。
+- 投递状态字段是 ``hasAppliedPosition`` / ``alreadyApply`` / ``applyType``
+  （游客页实测 20/20：``hasAppliedPosition=false``、``applyType="1"``）。
 """
 import json
 import time
@@ -27,8 +35,12 @@ from src.adapters.base import (
     Tab,
 )
 from src.adapters.zhaopin.cities import resolve_city_code
+from src.config import load_apply_config
 from src.core.browser import StopError
 from src.core.js_loader import load_js
+from src.focus_lock import foreground
+from src.utils import chat_input
+from src.utils.audit import write_audit
 
 SEARCH_BASE = "https://www.zhaopin.com/jobs/"
 HOME_URL = "https://www.zhaopin.com/"
@@ -69,11 +81,17 @@ def _first(*values):
 class ZhaopinAdapter:
     site = "zhaopin"
     display_name = "智联招聘"
+    delivery_mode = "apply_then_chat"
+
+    # 投递日志要用公司名，但 apply() 只收 job_id；apply 成功读到状态后记在这里，
+    # send_message 紧接着取用。只在同一实例内、同一次投递流程内有效。
+    _last_job: dict = {}
 
     def __init__(self, page: Page | None = None, click_timing: dict | None = None):
         self.page = page
         # 智联不点击卡片，速度档位只影响引擎自己的等待节奏；保留参数以符合构造约定。
         self._click_timing = dict(click_timing or {})
+        self._last_job = {}
 
     # ── 选页与站点入口 ────────────────────────────────────────────────
 
@@ -425,22 +443,292 @@ class ZhaopinAdapter:
             "platform": ZhaopinAdapter.site,
         }
 
-    # ── 投递侧：明确不支持 ────────────────────────────────────────────
+    # ── 投递侧：apply_then_chat ──────────────────────────────────────
 
     def open_chat(self, job_id: str) -> dict:
         return {"ok": False, "reason": "unsupported: apply_flow_not_implemented"}
 
     def open_conversation(self, hints: list[str] | None = None, timeout: float = 12.0) -> dict:
-        return {"ok": False, "reason": "unsupported: apply_flow_not_implemented"}
+        """投递后已进聊天页；这里只等输入框就绪，不再点任何东西。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.chat_input_ready():
+                return {"ok": True, "input_ready": True, "reason": "", "text": self.chat_url()}
+            time.sleep(0.5)
+        return {"ok": False, "input_ready": False, "reason": "chat_input_not_ready"}
 
     def chat_input_ready(self) -> bool:
-        return False
+        return bool(self._chat_snapshot().get("input_ready"))
 
     def chat_url(self) -> str:
-        return ""
+        if self.page is None:
+            return ""
+        try:
+            url = self.page.get_value(self.page.evaluate("location.href")) or ""
+            return url if "chat" in url else ""
+        except StopError:
+            raise
+        except Exception:
+            return ""
 
     def fill_greeting(self, text: str, attempts: int = 4) -> dict:
+        """智联不走「只填草稿」：要么整条投递 + 发消息，要么什么都不动。"""
         return {"ok": False, "reason": "unsupported: apply_flow_not_implemented"}
+
+    @staticmethod
+    def _is_applied(state: dict) -> bool:
+        if state.get("already_apply") is True or state.get("has_applied_position") is True:
+            return True
+        # 游客页实测 applyType 恒为 "1"（未投递）。遇到没见过的编码按已投处理：
+        # 宁可漏投一次，也不能对同一家重复投。
+        value = state.get("apply_type")
+        return value is not None and str(value) not in ("", "0", "1")
+
+    def apply_state(self, job_id: str) -> dict:
+        """只读：岗位是否已投、是否已登录、详情面板是否选中目标、按钮在哪。"""
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        try:
+            js = load_js("zhaopin_apply_state.js", {
+                "__JOB_ID__": json.dumps(str(job_id or ""), ensure_ascii=False),
+            })
+            info = _json_value(self.page.get_value(self.page.evaluate(js)), {})
+            if not isinstance(info, dict):
+                return {"ok": False, "reason": "unexpected_state"}
+            return info
+        except StopError:
+            raise
+        except Exception as exc:
+            _dt("apply_state", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
+            return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    def apply(self, job_id: str) -> dict:
+        """点「立即投递」并进聊天。三道闸 + 登录 + 幂等，任何一条不满足都不点。"""
+        gates = load_apply_config()
+        evidence: dict = {"gates": gates}
+        job_id = str(job_id or "")
+
+        def fail(reason: str, company: str = "") -> dict:
+            return self._apply_result(job_id, company, False, False, reason, evidence)
+
+        if not (gates["enabled"] and gates["send_message"]):
+            return fail("unsupported: apply_disabled")
+        if self.page is None:
+            return fail("no_page")
+
+        state = self.apply_state(job_id)
+        evidence["state"] = state
+        if not state.get("ok"):
+            return fail(state.get("reason") or "state_failed")
+        if not state.get("found"):
+            return fail("job_not_in_list")
+
+        company = state.get("company") or ""
+        self._last_job = {"job_id": job_id, "company": company}
+        if self._is_applied(state):
+            return self._apply_result(job_id, company, True, False,
+                                      "skipped: already_applied", evidence)
+        if not state.get("logged_in"):
+            return fail("unsupported: login_required", company)
+
+        if not state.get("selected"):
+            sel = self._select_job(job_id, state.get("index"))
+            evidence["select"] = sel
+            if not sel.get("ok"):
+                return fail(sel.get("reason") or "not_selected", company)
+            state = self.apply_state(job_id)
+            evidence["state"] = state
+            if not state.get("ok") or not state.get("selected"):
+                return fail("not_selected", company)
+
+        button = state.get("button") or {}
+        if not button.get("found"):
+            return fail("apply_button_not_found", company)
+        if button.get("disabled"):
+            return fail("apply_button_disabled", company)
+        if "已投" in (button.get("text") or ""):
+            return self._apply_result(job_id, company, True, False,
+                                      "skipped: already_applied", evidence)
+
+        # ── 从这里开始不可逆：只有前面全过才会走到 ──
+        clicked = self._click(button)
+        evidence["click"] = clicked
+        if not clicked.get("ok"):
+            return fail(clicked.get("reason") or "click_failed", company)
+
+        modal = self._wait_apply_modal()
+        evidence["modal"] = modal
+        if not modal.get("confirmed"):
+            if modal.get("login"):
+                return fail("unsupported: login_required", company)
+            return fail("apply_unconfirmed", company)
+
+        evidence["chat"] = self._continue_to_chat(modal)
+        return self._apply_result(job_id, company, True, True, "", evidence)
+
+    def send_message(self, text: str) -> dict:
+        """在聊天页发一条消息。只有回读到消息进入记录才返回 sent=True。"""
+        gates = load_apply_config()
+        body = text or ""
+        evidence: dict = {"gates": gates}
+        job = dict(self._last_job or {})
+        job_id = job.get("job_id", "")
+        company = job.get("company", "")
+
+        def fail(reason: str) -> dict:
+            return self._send_result(job_id, company, len(body), False, reason, evidence)
+
+        if not (gates["enabled"] and gates["send_message"]):
+            return fail("unsupported: apply_disabled")
+        if self.page is None:
+            return fail("no_page")
+        if not body.strip():
+            return fail("empty_text")
+
+        before = self._chat_snapshot()
+        evidence["before"] = {"ok": before.get("ok"),
+                              "input_ready": before.get("input_ready"),
+                              "input_len": before.get("input_len")}
+        if not before.get("input_ready"):
+            return fail("chat_input_not_ready")
+
+        filled = chat_input.fill_chat_input(self.page, body)
+        evidence["fill"] = filled
+        if not filled.get("ok"):
+            return fail(f"fill_failed: {filled.get('reason')}")
+
+        button = (self._chat_snapshot().get("send") or {})
+        evidence["button"] = button
+        if not button.get("found"):
+            return fail("send_button_not_found")
+
+        clicked = self._click(button)
+        evidence["click"] = clicked
+        if not clicked.get("ok"):
+            return fail(clicked.get("reason") or "click_failed")
+
+        probe = body.strip()[:20]
+        deadline = time.time() + 5.0
+        last: dict = {}
+        while time.time() < deadline:
+            last = self._chat_snapshot()
+            if not last.get("ok"):
+                break
+            if any(probe in str(m) for m in (last.get("messages") or [])):
+                evidence["after"] = {"verified": True, "input_len": last.get("input_len")}
+                return self._send_result(job_id, company, len(body), True, "", evidence)
+            time.sleep(0.4)
+
+        evidence["after"] = {
+            "verified": False,
+            "input_len": last.get("input_len"),
+            "messages": (last.get("messages") or [])[-5:],
+        }
+        return fail("sent_unverified")
+
+    # ── 投递辅助 ──────────────────────────────────────────────────────
+
+    def _apply_result(self, job_id: str, company: str, ok: bool, submitted: bool,
+                      reason: str, evidence: dict) -> dict:
+        write_audit(self.site, "apply", job_id=job_id, company=company,
+                    ok=bool(ok), submitted=bool(submitted), reason=reason or "")
+        return {"ok": bool(ok), "reason": reason or "", "submitted": bool(submitted),
+                "evidence": evidence}
+
+    def _send_result(self, job_id: str, company: str, length: int, sent: bool,
+                     reason: str, evidence: dict) -> dict:
+        write_audit(self.site, "send_message", job_id=job_id, company=company,
+                    length=int(length), sent=bool(sent), reason=reason or "")
+        return {"ok": bool(sent), "reason": reason or "", "sent": bool(sent),
+                "length": int(length), "evidence": evidence}
+
+    def _click(self, rect: dict) -> dict:
+        """切前台 + 设备级点击；坐标点击会抢窗口焦点，必须和别的平台串行。"""
+        x, y = rect.get("x"), rect.get("y")
+        if not isinstance(x, int) or not isinstance(y, int):
+            return {"ok": False, "reason": "bad_rect"}
+        try:
+            with foreground():
+                self.page.bring_to_front()
+                self.page.native_click(x, y)
+                time.sleep(0.6)
+            return {"ok": True, "reason": ""}
+        except StopError:
+            raise
+        except Exception as exc:
+            _dt("_click", "exception", {"exc_type": type(exc).__name__, "exc": str(exc)})
+            return {"ok": False, "reason": f"click_failed: {type(exc).__name__}"}
+
+    def _select_job(self, job_id: str, index) -> dict:
+        """点列表卡片切详情面板，并回读 selectedJobId 确认没点错岗位。"""
+        if not isinstance(index, int) or index < 0:
+            return {"ok": False, "reason": "job_not_in_list"}
+        try:
+            js = load_js("zhaopin_select.js", {"__INDEX__": str(index)})
+            info = _json_value(self.page.get_value(self.page.evaluate(js)), {})
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": f"select_failed: {type(exc).__name__}"}
+        if not isinstance(info, dict) or not info.get("ok"):
+            return {"ok": False, "reason": str((info or {}).get("reason") or "card_not_found")}
+
+        clicked = self._click(info)
+        if not clicked.get("ok"):
+            return clicked
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            state = self.apply_state(job_id)
+            if state.get("ok") and state.get("selected"):
+                return {"ok": True, "reason": ""}
+            time.sleep(0.3)
+        return {"ok": False, "reason": "select_unverified"}
+
+    def _wait_apply_modal(self, timeout: float = 6.0) -> dict:
+        last: dict = {}
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                info = _json_value(
+                    self.page.get_value(self.page.evaluate(load_js("zhaopin_apply_modal.js"))), {})
+            except StopError:
+                raise
+            except Exception as exc:
+                last = {"confirmed": False, "reason": f"modal_failed: {type(exc).__name__}"}
+                time.sleep(0.4)
+                continue
+            if isinstance(info, dict):
+                last = info
+                if info.get("confirmed") or info.get("login"):
+                    return info
+            time.sleep(0.4)
+        return last or {"confirmed": False, "reason": "modal_timeout"}
+
+    def _continue_to_chat(self, modal: dict) -> dict:
+        button = modal.get("continue") or {}
+        if not button.get("found"):
+            return {"ok": False, "reason": "continue_button_not_found"}
+        clicked = self._click(button)
+        if not clicked.get("ok"):
+            return clicked
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if self.chat_input_ready():
+                return {"ok": True, "reason": "", "url": self.chat_url()}
+            time.sleep(0.5)
+        return {"ok": False, "reason": "chat_not_opened"}
+
+    def _chat_snapshot(self) -> dict:
+        if self.page is None:
+            return {"ok": False, "reason": "no_page"}
+        try:
+            info = _json_value(
+                self.page.get_value(self.page.evaluate(load_js("zhaopin_chat_read.js"))), {})
+            return info if isinstance(info, dict) else {"ok": False, "reason": "unexpected_state"}
+        except StopError:
+            raise
+        except Exception as exc:
+            return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
 from src.adapters.registry import register_adapter  # noqa: E402

@@ -31,11 +31,49 @@
 - **LLM 全局限流**：`src/ai/client.py` 只有一个模块级 `BoundedSemaphore`，容量取
   `ai.concurrency`；限的是真正发出的 `requests.post`，不按 `LLMClient` 实例各算一份。
 
+## 投递能力（`apply_then_chat`）
+
+适配器用 `delivery_mode` 声明能力，引擎按能力分支，不按站点名分支：
+
+| 值 | 含义 | 当前实现 |
+|---|---|---|
+| `prefill_chat` | 开聊天窗、填话术，永不发送 | BOSS、fake |
+| `apply_then_chat` | 点投递（不可逆）→ 进聊天 → 发一条消息 | 智联 |
+| `unsupported` | 不支持投递 | 缺省值 |
+
+**三条闸，缺一不可**（`config.yaml`，默认全关）：
+
+```yaml
+apply:
+  enabled: false        # 允许执行不可逆投递
+  send_message: false   # 允许在聊天里发消息
+  daily_limit: 0        # 0 = 不限，>0 按当天 applied 计数
+```
+
+- 两个开关都开才走 `apply_then_chat`，否则返回 `unsupported: apply_disabled`。
+- 没有 `Tracker` 也拒绝投递（`unsupported: no_tracker`）——查重和计数都靠它。
+- 幂等：点之前读 `positionList[i]` 的 `alreadyApply` / `hasAppliedPosition` /
+  `applyType`；已投过的返回 `skipped: already_applied`，绝不重复投。
+  `applyType` 只实测过 `"1"`（未投递），未知编码按已投处理，宁可漏投不重复投。
+- 登录态：`state.user` 非空才算登录；游客态直接返回 `unsupported: login_required`，
+  不点按钮，避免弹登录框。
+- 选中校验：投递按钮只作用于详情面板当前岗位，点之前核对 `selectedJobId`；
+  不一致先点列表卡片并回读确认，确认不了就放弃。
+- 结果如实：只有弹窗确认「已向对方发送简历和打招呼语」才 `submitted=true`；
+  消息只有回读到进入聊天记录才 `sent=true`，否则 false 并给出 `reason`。
+- 留痕：每次 `apply` / `send_message` 追加一行 JSON 到
+  `output/{platform}/apply_audit.log`（job_id、公司、长度、结果、原因）。
+- 成功后 `tracking` 状态写 `applied`（不是 `shortlisted`）；`shortlisted` 仍只表示
+  「已填草稿，等人发」。
+- 只读体检：`python -m src.ai apply-check --site zhaopin --job-id <number>`，
+  连浏览器读状态与按钮，不点击；返回 `missing` 列表说明还差什么。
+
 ## 依赖方向
 
 ```
 src.ai.pipeline → src.ai.client, src.ai.screen, src.ai.dispatch, src.config
 src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.runtime, src.tracking, src.focus_lock
+src.ai.apply → src.adapters.*, src.config, src.core.browser, src.tracking, src.utils.audit
 src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 ```
 
@@ -49,8 +87,14 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 | `src/ai/pipeline.py` | 计划编排：读采集结果 → 调模型 → 写 `ai_plan_*.json`，带缓存复用 |
 | `src/ai/activity.py` | 招聘者活跃描述解析（`parse_active_days` / `is_offline`） |
 | `src/ai/dispatch.py` | 浏览器侧执行：开详情 → 点沟通 → 填字 → 跳聊天页 |
+| `src/ai/apply.py` | 按 `delivery_mode` 分支的投递入口：配置闸 → 日限额 → apply → tracking → 发消息 |
+| `src/adapters/zhaopin/__init__.py` | 智联适配器：采集 + `apply_then_chat` |
+| `src/js/zhaopin_apply_state.js` | 只读投递状态（已投 / 登录 / 选中 / 按钮坐标） |
+| `src/js/zhaopin_apply_modal.js` | 点投递后的确认弹窗与「继续沟通」按钮 |
+| `src/js/zhaopin_chat_read.js` | 聊天页只读：输入框、最近消息、发送按钮 |
+| `src/utils/audit.py` | 不可逆动作留痕，一行一条 JSON |
 | `src/js/fill_greeting.js` | 把 `__TEXT__` 写进最后一个可见输入框（只填不发） |
-| `src/ai/__main__.py` | CLI：`screen` / `dispatch` 两个子命令 |
+| `src/ai/__main__.py` | CLI：`screen` / `dispatch` / `apply-check` |
 
 ## 采集后自动执行
 
@@ -90,6 +134,14 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
   草稿同样存不住。用 CDP 的 `Input.insertText`（先 Ctrl+A 清空）。
 - **填完别立刻导航**：平台存草稿有延迟，填完等 2.5s 再走，否则草稿丢失；已在聊天页时收尾不要再 `location.href` 一次。
 - **详情页返回空 JD**：BOSS 对未登录 / 频繁访问会返回脱敏内容；`screen` 遇到 `jd` 为空应直接判 `skip` 并在理由里写明，不要硬编招呼语。
+- **智联的投递按钮属于「当前选中岗位」**：`button.job-detail-summary__apply` 没有岗位 id，
+  只对右侧详情面板生效。点之前必须核对 `selectedJobId`，不一致先点卡片再回读确认。
+- **智联聊天页选择器尚未在登录态下实测**：`zhaopin_chat_read.js` 用的是通用的
+  textarea / contenteditable 与 class 关键字兜底。首次真投前，必须在登录态下
+  `apply-check` 后人工看一遍聊天页，确认「发送」按钮与消息节点能被识别；
+  识别不到时 `send_message` 会如实返回 `sent=false`，不会吞成成功。
+- **游客点投递会弹登录框**：`apply()` 在点之前就用 `state.user` 判登录，
+  游客直接 `unsupported: login_required`，不要靠点完再识别弹窗。
 
 ## 测试方式
 

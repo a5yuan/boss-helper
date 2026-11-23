@@ -33,6 +33,7 @@ class FakePlatformAdapter:
 
     site = "fake"
     display_name = "假平台"
+    delivery_mode = "prefill_chat"
 
     def __init__(self, page=None, click_timing=None):
         self.page = page
@@ -109,6 +110,17 @@ class FakePlatformAdapter:
 
     def fill_greeting(self, text, attempts=4):
         return {"ok": True, "length": len(text)}
+
+    def apply_state(self, job_id):
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat"}
+
+    def apply(self, job_id):
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat",
+                "submitted": False, "evidence": {}}
+
+    def send_message(self, text):
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat",
+                "sent": False, "length": 0, "evidence": {}}
 
 
 from src.adapters.registry import register_adapter  # noqa: E402

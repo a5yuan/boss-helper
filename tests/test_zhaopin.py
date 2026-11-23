@@ -230,15 +230,21 @@ class TestZhaopinUnsupportedApply(unittest.TestCase):
     def setUp(self):
         self.adapter = ZhaopinAdapter(FakePage())
 
-    def test_apply_methods_are_unsupported(self):
+    def test_prefill_methods_are_unsupported(self):
+        # 智联走 apply_then_chat，不提供 BOSS 式「只填草稿」入口
         results = [
             self.adapter.open_chat(JOB_ID),
-            self.adapter.open_conversation(["某公司"]),
             self.adapter.fill_greeting("你好"),
         ]
         for result in results:
             self.assertIs(result["ok"], False)
             self.assertTrue(result["reason"].startswith("unsupported:"))
+
+    def test_open_conversation_waits_for_input_box(self):
+        # 投递后进聊天页时用：只等输入框，不点任何东西
+        result = self.adapter.open_conversation(["某公司"], timeout=0.1)
+        self.assertIs(result["ok"], False)
+        self.assertIs(result["input_ready"], False)
 
     def test_chat_input_and_url(self):
         self.assertIs(self.adapter.chat_input_ready(), False)

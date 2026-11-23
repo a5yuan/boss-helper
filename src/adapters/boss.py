@@ -130,6 +130,8 @@ def get_salary_code(salary_min, salary_max):
 class BossAdapter:
     site = "boss"
     display_name = "BOSS 直聘"
+    # BOSS 只做「开聊天窗 + 填草稿」，永不点发送；投递能力保持不支持。
+    delivery_mode = "prefill_chat"
 
     def __init__(self, page: Page | None = None, click_timing: dict | None = None):
         self.page = page
@@ -663,6 +665,19 @@ class BossAdapter:
                 return last
             time.sleep(0.8)
         return last
+
+    # ── 投递侧：BOSS 明确不支持，保持只填不发 ──────────────────────────
+
+    def apply_state(self, job_id: str) -> dict:
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat"}
+
+    def apply(self, job_id: str) -> dict:
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat",
+                "submitted": False, "evidence": {}}
+
+    def send_message(self, text: str) -> dict:
+        return {"ok": False, "reason": "unsupported: delivery_mode_prefill_chat",
+                "sent": False, "length": 0, "evidence": {}}
 
 
 from src.adapters.registry import register_adapter  # noqa: E402
