@@ -70,3 +70,6 @@ docs/git
 
 # 个人简历（AI 筛选输入，不进仓库）
 resume.md
+
+# 城市映射缓存（src/core/cities.py 生成，可重建）
+data/
