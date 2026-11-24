@@ -58,6 +58,23 @@ class TestMustExclude(_Base):
         self.assert_excluded(_job(title="agent开发", job_labels=["实习生"]), "internship")
 
 
+    # ── JD 正文里的实习承诺：标题没写实习、但要求候选人投入实习时间 ──
+    def test_internship_commitment_in_jd(self):
+        for text in ["实习周期不少于 3 个月",
+                     "实习期不少于6个月",
+                     "每周至少 4 天的实习时间",
+                     "本岗位走实习转正通道，不直发秋招 offer"]:
+            with self.subTest(text=text):
+                self.assert_excluded(_job(title="agent开发", jd=text), "internship")
+
+    def test_online_forbidden_after_offline_interview(self):
+        # 「线下面试、线上面试勿投」是只接受线下，不是给了线上替代
+        self.assert_excluded(
+            _job(title="agent智能体开发",
+                 jd="优先考虑在天津本地的⼈选，能参加 线下面试 、线上面试勿投"),
+            "interview_offline")
+
+
 class TestMustNotExclude(_Base):
     def test_online_interview_titles(self):
         for title in ["AI Agent软件开发岗-0经验-可培养-线上面试",
@@ -78,10 +95,11 @@ class TestMustNotExclude(_Base):
         self.assert_kept(_job(jd="薪资根据面试定级定薪"))
 
     def test_internship_signal_in_jd_is_not_internship_job(self):
+        # 「实习转正通道」原本按「社招岗」保留；产品确认这类岗实质是实习入口，
+        # 已移到 TestMustExclude.test_internship_commitment_in_jd。
         for text in ["非实习岗，社招", "提供实习证明", "实习期薪资 6K",
                      "实习生导师带教", "带实习生", "实习、课程、竞赛、个人项目均可",
-                     "本岗位同时还招聘AI agent实习生岗位，实习周期不少于3个月",
-                     "本岗位走实习转正通道，不直发秋招 offer"]:
+                     "本岗位同时还招聘AI agent实习生岗位，实习周期不少于3个月"]:
             with self.subTest(text=text):
                 self.assert_kept(_job(title="大模型 Agent 开发工程师", jd=text))
 
@@ -101,6 +119,14 @@ class TestMustNotExclude(_Base):
     def test_welfare_mentions_are_ignored_for_internship(self):
         self.assert_kept(_job(title="Agent开发工程师",
                               welfare=["提供实习证明", "实习期薪资"]))
+
+    def test_jd_intern_mention_without_commitment(self):
+        for text in ["标准职责（不招聘实习岗）",
+                     "本岗位同时还招聘AI agent实习生岗位，实习周期不少于3个月",
+                     "要求至少一个完整项目经历（实习、课程、竞赛、个人项目均可）",
+                     "可立即实习的优先考虑"]:
+            with self.subTest(text=text):
+                self.assert_kept(_job(title="agent开发", jd=text))
 
 
 class TestSplitCached(unittest.TestCase):

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 预筛补上「标题没写实习、但实质是实习」的漏排：JD 正文命中实习周期（`实习周期不少于 N 个月`）、每周实习天数、`实习转正通道` 时按实习岗排除；同一句里写着「同时还招聘实习生岗位」的不误伤。顺带修掉「线下面试、线上**勿投**」被当成「可线上」而放过的问题
 - 城市下拉里直辖市重复（北京、上海、天津、重庆各出现两次）且「全国」选项丢失：`city.json` 里直辖市有省级（`101010000`）和市级（`101010100`）两条同名记录，原来按 code 去重挡不住；现改为按 label 去重、同名保留市级编码，并在读取与刷新时都把「全国」补回首位（旧缓存无需手动清理）
 - 智联投递前先查 `tracking.json`：状态为 `applied` 的岗位直接跳过（`skipped: already_applied`），不再只依赖会随列表刷新失效的页面字段；读 tracking 失败按未投处理并记日志
 - `tracking.py` 的 `os.replace` 在 Windows 遇到读句柄占用时不再裸崩：清理临时文件并抛 `TrackingError`，接口返回 `{ok:false,error}`

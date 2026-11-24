@@ -61,10 +61,43 @@ _INTERN_NEG_BEFORE = re.compile(
 _INTERN_NEG_AFTER = re.compile(r"^(?:导师|带教|指导|培养|管理)")
 
 
+# JD 正文里的实习信号：只有当岗位要求候选人承诺实习投入时才算实习岗。
+# 单纯出现「实习」多半是福利或资历要求（实习证明 / 实习经历 / 带实习生），
+# 所以正文只认下面三种带承诺语义的写法。
+_INTERN_BODY_PATTERNS = [
+    ("实习周期",
+     re.compile(r"实习(?:周期|期)(?:不少于|不短于|至少|最少|需满|要求|≥|>)?\s*"
+                r"[0-9一二三四五六七八九十]+\s*个?月"),
+     "要求实习周期"),
+    ("实习天数",
+     re.compile(r"每周[^。；;\n]{0,12}天[^。；;\n]{0,12}实习"
+                r"|实习[^。；;\n]{0,12}每周[^。；;\n]{0,8}天"),
+     "要求每周实习天数"),
+    ("实习转正",
+     re.compile(r"实习转正|转正通道"),
+     "实习转正岗"),
+]
+
+
+def _clause_before(text: str, pos: int) -> str:
+    """取命中点所在的那一小句，用来判断是不是「同时招聘别的实习岗」这类否定。"""
+    starts = [text.rfind(ch, 0, pos) for ch in "。；;\n"]
+    return text[max(0, max(starts) + 1):pos]
+
+
+# 「线上面试勿投 / 线上勿扰」是说只接受线下，不是给了线上替代
+_ONLINE_REJECT_AFTER = re.compile(r"(?:勿投|勿扰|勿发|免谈|请勿|不要投|不接受|不予考虑)")
+
+
 def _online_alternative(after: str) -> bool:
-    """命中点后面是否给了线上替代，且没有「不支持线上」这类否定。"""
+    """命中点后面是否给了线上替代，且没有「不支持线上」「线上勿投」这类否定。"""
     match = _ONLINE_AFTER.match(after)
-    return bool(match) and not _ONLINE_NEG.search(match.group(1))
+    if not match:
+        return False
+    if _ONLINE_NEG.search(match.group(1)):
+        return False
+    tail = after[match.end():match.end() + 10]
+    return not _ONLINE_REJECT_AFTER.search(tail)
 
 
 def _snippet(text: str, start: int, end: int, radius: int = 18) -> str:
@@ -119,6 +152,27 @@ def _scan_internship(field: str, text: str):
     return None
 
 
+def _scan_intern_body(field: str, text: str):
+    """JD 正文的实习信号，带「同时招聘别的实习岗」这类否定保护。"""
+    if not text:
+        return None
+    for label, pattern, reason in _INTERN_BODY_PATTERNS:
+        for match in pattern.finditer(text):
+            clause = _clause_before(text, match.start())
+            # 本岗位顺带还招实习生的，说的不是这个岗位
+            if re.search(r"(?:同时|另|还|也)(?:招聘|招|招募)|不招|非实习|无需实习|不需要实习",
+                         clause):
+                continue
+            return {
+                "rule": "internship",
+                "reason": reason,
+                "field": field,
+                "snippet": _snippet(text, match.start(), match.end()),
+                "matched": label,
+            }
+    return None
+
+
 def check_job(job: dict):
     """返回命中信息 {rule, reason, field, snippet}；不该排除返回 None。"""
     title = job.get("title") or ""
@@ -135,13 +189,19 @@ def check_job(job: dict):
     if hit:
         return hit
 
-    # JD 与福利里只查线下面试；实习只在标题 / 岗位类型里判断，避免误伤
+    # JD 与福利里查线下面试
     for field in ("jd", "welfare", "job_labels"):
         value = job.get(field)
         text = "；".join(str(x) for x in value) if isinstance(value, list) else (value or "")
         hit = _scan_offline(field, text)
         if hit:
             return hit
+
+    # 正文里的实习承诺（实习周期 / 每周到岗天数 / 实习转正通道）
+    jd = job.get("jd") or ""
+    hit = _scan_intern_body("jd", jd)
+    if hit:
+        return hit
     return None
 
 
