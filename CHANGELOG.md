@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 城市下拉里直辖市重复（北京、上海、天津、重庆各出现两次）且「全国」选项丢失：`city.json` 里直辖市有省级（`101010000`）和市级（`101010100`）两条同名记录，原来按 code 去重挡不住；现改为按 label 去重、同名保留市级编码，并在读取与刷新时都把「全国」补回首位（旧缓存无需手动清理）
 - 智联投递前先查 `tracking.json`：状态为 `applied` 的岗位直接跳过（`skipped: already_applied`），不再只依赖会随列表刷新失效的页面字段；读 tracking 失败按未投处理并记日志
 - `tracking.py` 的 `os.replace` 在 Windows 遇到读句柄占用时不再裸崩：清理临时文件并抛 `TrackingError`，接口返回 `{ok:false,error}`
 - 采集在列表到底且连续无新卡片时不再死循环：连续 2 轮无新岗位触发刷新，最多刷新 2 次后正常结束，进度显示已处理数量

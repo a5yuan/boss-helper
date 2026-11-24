@@ -71,6 +71,44 @@ def flatten_city_tree(zp_data):
     return items
 
 
+NATIONAL_CITY = {"label": "全国", "value": "100010000"}
+
+
+def normalize_cities(items):
+    """按 label 去重并保证「全国」在首位。
+
+    BOSS 的 city.json 里直辖市有两级：省级（如 101010000）和市级
+    （如 101010100），label 都叫「北京」但 code 不同。按 code 去重挡不住，
+    下拉里就会出现两个北京。同名时保留市级编码（不以 0000 结尾的那个），
+    因为搜索参数要的是市。
+
+    旧缓存里已经存了重复项，所以读取时也走一遍归一化，不指望用户重新刷新。
+    """
+    best = {}
+    order = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        label = str(it.get("label") or "").strip()
+        value = str(it.get("value") or "").strip()
+        if not label or not value:
+            continue
+        if label not in best:
+            best[label] = {"label": label, "value": value}
+            order.append(label)
+        elif best[label]["value"].endswith("0000") and not value.endswith("0000"):
+            # 已有的是省级编码，换成市级
+            best[label]["value"] = value
+
+    out = [best[label] for label in order]
+    # 「全国」内置在常量里，BOSS 的树里没有，缓存覆盖后会丢，这里补回去
+    if not any(it["label"] == NATIONAL_CITY["label"] for it in out):
+        out.insert(0, dict(NATIONAL_CITY))
+    else:
+        out.sort(key=lambda it: 0 if it["label"] == NATIONAL_CITY["label"] else 1)
+    return out
+
+
 def get_cities():
     """返回城市列表：缓存优先，缺失时回退内置常用城市。"""
     if os.path.exists(CACHE_PATH):
@@ -78,10 +116,10 @@ def get_cities():
             with open(CACHE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, list) and data:
-                return data
+                return normalize_cities(data)
         except Exception:
             pass
-    return COMMON_CITIES
+    return normalize_cities(COMMON_CITIES)
 
 
 def save_cities(items):
@@ -114,7 +152,7 @@ def refresh_from_browser(browser_type="chrome"):
         if isinstance(data, str):
             data = json.loads(data)
         zp_data = data.get("zpData") if isinstance(data, dict) else None
-        items = flatten_city_tree(zp_data)
+        items = normalize_cities(flatten_city_tree(zp_data))
         if not items:
             return None, "city.json 解析为空，可能页面未登录或接口结构变化"
         save_cities(items)
