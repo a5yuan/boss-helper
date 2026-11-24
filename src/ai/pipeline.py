@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 
 from src.ai.client import LLMClient
+from src.ai.exclude import check_job, exclusion_result
 from src.ai.resume import ResumeLibrary, load_resume
 from src.ai.screen import screen_jobs
 from src.config import load_ai_config
@@ -80,6 +81,18 @@ def _resume_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
+def _split_cached(items: list):
+    """旧计划拆两份：执行记录全量保留，模型判定只复用非预筛的。
+
+    预筛结果不是模型判断，规则调整后必须重判；但 dispatch 记录要留着，
+    否则规则放宽后重新变成 planned 的岗位可能被重复联系。
+    """
+    old_by_eid = {it.get("encrypt_job_id"): it for it in items if it.get("encrypt_job_id")}
+    cached = {eid: it for eid, it in old_by_eid.items()
+              if it.get("verdict") and not it.get("excluded_by")}
+    return old_by_eid, cached
+
+
 def build_plan(source_path: str, limit: int | None = None, min_score: int | None = None,
                force: bool = False, on_event=None, resume_path: str | None = None) -> dict:
     """读采集结果 → 逐条选简历 → 调模型 → 写 ai_plan_*.json。
@@ -111,50 +124,66 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
         log("[*] 简历库: " + " / ".join(library.labels()))
 
     # ---- 复用已有计划 ----
+    old_items = {}
     cached = {}
     if os.path.exists(out_path) and not force:
         try:
             old = json.load(open(out_path, "r", encoding="utf-8"))
             if old.get("resume_hash") == resume_hash and old.get("source_file") == os.path.basename(source_path):
-                cached = {it.get("encrypt_job_id"): it for it in old.get("items", [])
-                          if it.get("encrypt_job_id") and it.get("verdict")}
+                old_items, cached = _split_cached(old.get("items", []))
                 log(f"[*] 读到旧计划 {len(cached)} 条")
         except Exception:
+            old_items = {}
             cached = {}
+
+    # ---- 确定性预筛：线下面试 / 实习岗不走模型 ----
+    prefiltered = {}
+    for i, job in enumerate(targets):
+        hit = check_job(job)
+        if hit:
+            prefiltered[i] = exclusion_result(hit)
+    if prefiltered:
+        log(f"[*] 预筛排除 {len(prefiltered)} 条（不进模型）")
+        for i, res in prefiltered.items():
+            title = (targets[i].get("title") or "?")[:24]
+            log(f"    - {title} | {res['skip_reason']}")
 
     # ---- 逐条定简历，决定哪些要重新分析 ----
     picked = {}
     pending = []
-    for job in targets:
+    for i, job in enumerate(targets):
         eid = job.get("encrypt_job_id") or ""
         label, text = resume_for(job)
-        picked[eid] = (label, text)
+        picked[i] = (label, text)
+        if i in prefiltered:
+            continue
         old = cached.get(eid)
         if old and old.get("resume") == label:
             continue
-        pending.append(job)
+        pending.append((i, job))
 
-    results = {}
+    results = dict(prefiltered)
     if pending:
         client = LLMClient.from_config()
         log(f"[*] 待分析 {len(pending)} 条，模型 {ai_cfg['model']}")
-        screened = screen_jobs(client, pending, resume_for, limit=None,
+        screened = screen_jobs(client, [job for _, job in pending], resume_for, limit=None,
                               concurrency=ai_cfg["concurrency"], on_event=log)
-        for job, res in zip(pending, screened):
-            results[job.get("encrypt_job_id")] = res
+        for (i, _job), res in zip(pending, screened):
+            results[i] = res
     else:
         log("[*] 没有需要重新分析的岗位")
 
     items = []
     for idx, job in enumerate(targets, 1):
         eid = job.get("encrypt_job_id") or ""
-        label = picked.get(eid, ("", ""))[0]
-        res = results.get(eid) or cached.get(eid) or {}
+        i = idx - 1
+        label = picked.get(i, ("", ""))[0]
+        res = results.get(i) or cached.get(eid) or {}
         verdict = res.get("verdict") or "skip"
         score = res.get("score") or 0
         greeting = res.get("greeting") or ""
-        old_item = cached.get(eid) or {}
-        items.append({
+        old_item = old_items.get(eid) or {}
+        item = {
             "index": idx,
             "security_id": job.get("security_id") or "",
             "encrypt_job_id": eid,
@@ -170,8 +199,13 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
             "greeting": greeting,
             "status": decide_status(verdict, score, greeting, min_score),
             "dispatch": "todo",
-        })
-        items[-1] = carry_dispatch(old_item, items[-1])
+        }
+        if res.get("skip_reason"):
+            item["skip_reason"] = res["skip_reason"]
+            item["excluded_by"] = res.get("excluded_by") or ""
+            item["exclude_field"] = res.get("exclude_field") or ""
+            item["exclude_snippet"] = res.get("exclude_snippet") or ""
+        items.append(carry_dispatch(old_item, item))
 
     by_resume = {}
     for it in items:
@@ -188,6 +222,7 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
             "total": len(items),
             "planned": sum(1 for it in items if it["status"] == "planned"),
             "skipped": sum(1 for it in items if it["status"] == "skip"),
+            "excluded": sum(1 for it in items if it.get("excluded_by")),
             "by_resume": by_resume,
         },
         "items": items,

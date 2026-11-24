@@ -40,12 +40,23 @@ def cmd_ping(_args):
     print(f"回复: {reply.strip()[:40]}")
 
 
+def _print_exclusions(items):
+    hits = [it for it in items if it.get("excluded_by")]
+    if not hits:
+        return
+    print(f"\n预筛排除 {len(hits)} 条：")
+    for it in hits:
+        print(f"  - {it['title']} | {it['excluded_by']} | {it.get('exclude_snippet', '')}")
+
+
 def cmd_screen(args):
     plan = build_plan(args.file, limit=args.limit, min_score=args.min_score,
                       force=args.force, on_event=print, resume_path=args.resume)
     _print_table(plan["items"])
+    _print_exclusions(plan["items"])
     s = plan["summary"]
-    print(f"\n计划: {s['planned']} 条可投 / {s['skipped']} 条跳过 / 共 {s['total']} 条")
+    print(f"\n计划: {s['planned']} 条可投 / {s['skipped']} 条跳过"
+          f"（其中预筛 {s.get('excluded', 0)} 条）/ 共 {s['total']} 条")
     print(f"文件: {plan_path_for(args.file)}")
 
 

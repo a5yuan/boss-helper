@@ -10,6 +10,21 @@
 
 产物：`output/ai_plan_<date>_<tag>.json`。
 
+## 确定性预筛（调用模型之前）
+
+`src/ai/exclude.py` 在 `build_plan` 里先跑一遍，命中直接判 `skip`，不消耗 token：
+
+- `interview_offline`：标题 / JD / 福利里明确要求线下面试、现场面试、到场 / 到岗面谈，
+  或写了「面试地点：」「面试方式：线下」。
+- `internship`：只在标题或岗位类型标签里明确写「实习生 / 实习岗 / 暑期实习 / 日常实习」时命中。
+
+误伤边界：线上 / 视频 / 远程 / 电话面试、`可线下面试`、`面试地点：线上`、否定写法
+（`无需现场面试`）都不算线下面试；JD 正文里的「实习证明」「实习期薪资」「带实习生」
+「非实习」「社招」不算实习岗。
+
+命中信息写进计划条目：`skip_reason`（人读）、`excluded_by`（规则名）、`exclude_field`、
+`exclude_snippet`（原文片段）。预筛结果不进入模型缓存，规则调整后会重新判断。
+
 ## 不变量
 
 - **只填不发送**：`dispatch` 只把文本写进输入框，发送永远由人点。`fill_greeting.js` 不得触发发送。
@@ -75,7 +90,7 @@ apply:
 ## 依赖方向
 
 ```
-src.ai.pipeline → src.ai.client, src.ai.screen, src.ai.dispatch, src.config
+src.ai.pipeline → src.ai.client, src.ai.screen, src.ai.exclude, src.ai.dispatch, src.config
 src.ai.dispatch → src.adapters.boss, src.core.browser, src.core.js_loader, src.runtime, src.tracking, src.focus_lock
 src.ai.apply → src.adapters.*, src.config, src.core.browser, src.tracking, src.utils.audit
 src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
@@ -88,7 +103,8 @@ src.ai.* 不得 import server.*；API 层在 server.app 里调用它们
 | `src/ai/client.py` | OpenAI 兼容 chat 客户端，JSON 输出解析与重试 |
 | `src/ai/resume.py` | 读简历（md/txt）+ `ResumeLibrary` 关键词路由，多份简历按方向选 |
 | `src/ai/screen.py` | 打分 + 判定 + 理由 + 招呼语，提示词在这里 |
-| `src/ai/pipeline.py` | 计划编排：读采集结果 → 调模型 → 写 `ai_plan_*.json`，带缓存复用 |
+| `src/ai/exclude.py` | 确定性预筛：线下面试 / 实习岗，命中不进模型 |
+| `src/ai/pipeline.py` | 计划编排：读采集结果 → 预筛 → 调模型 → 写 `ai_plan_*.json`，带缓存复用 |
 | `src/ai/activity.py` | 招聘者活跃描述解析（`parse_active_days` / `is_offline`） |
 | `src/ai/dispatch.py` | 浏览器侧执行：开详情 → 点沟通 → 填字 → 跳聊天页 |
 | `src/ai/apply.py` | 按 `delivery_mode` 分支的投递入口：配置闸 → 日限额 → apply → tracking → 发消息 |
