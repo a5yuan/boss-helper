@@ -67,6 +67,16 @@ class TestMustExclude(_Base):
             with self.subTest(text=text):
                 self.assert_excluded(_job(title="agent开发", jd=text), "internship")
 
+    def test_internship_commitment_variants(self):
+        # 真实 JD 里的其他写法：顺序反的、说「连续实习」的、说「实习时间」的
+        for text, rule in [("每周可实习 4 天", "internship"),
+                           ("每周实习 3 天", "internship"),
+                           ("能连续实习 3 个月", "internship"),
+                           ("实习时间不少于 3 个月", "internship"),
+                           ("实习可转正", "internship")]:
+            with self.subTest(text=text):
+                self.assert_excluded(_job(title="agent开发", jd=text), rule)
+
     def test_online_forbidden_after_offline_interview(self):
         # 「线下面试、线上面试勿投」是只接受线下，不是给了线上替代
         self.assert_excluded(
@@ -123,6 +133,8 @@ class TestMustNotExclude(_Base):
     def test_jd_intern_mention_without_commitment(self):
         for text in ["标准职责（不招聘实习岗）",
                      "本岗位同时还招聘AI agent实习生岗位，实习周期不少于3个月",
+                     # 限定写在命中点后面，也要挡住
+                     "实习周期不少于3个月，本岗位同时还招聘实习生",
                      "要求至少一个完整项目经历（实习、课程、竞赛、个人项目均可）",
                      "可立即实习的优先考虑"]:
             with self.subTest(text=text):

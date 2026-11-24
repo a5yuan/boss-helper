@@ -4,7 +4,10 @@
 
 - 「线上面试」「视频面试」「远程面试」「可线下面试」不算线下面试；
 - 「非实习」「不招实习生」「实习证明」「实习期薪资」「带实习生」不是实习岗；
-- 只有标题（或岗位类型标签）明确写实习，才按实习岗排除，JD 正文提到实习不算。
+- 标题（或岗位类型标签）写了实习，直接按实习岗排除；
+- JD 正文只在要求候选人承诺实习投入时才排除（实习周期/实习时间 N 个月、
+  每周实习 N 天、实习转正），单提「实习」不算；同句写着「同时还招聘实习生」
+  的按正式岗保留。
 """
 import re
 
@@ -64,25 +67,37 @@ _INTERN_NEG_AFTER = re.compile(r"^(?:导师|带教|指导|培养|管理)")
 # JD 正文里的实习信号：只有当岗位要求候选人承诺实习投入时才算实习岗。
 # 单纯出现「实习」多半是福利或资历要求（实习证明 / 实习经历 / 带实习生），
 # 所以正文只认下面三种带承诺语义的写法。
+_NUM = r"[0-9一二三四五六七八九十]"
 _INTERN_BODY_PATTERNS = [
+    # 实习时长：实习周期/实习期/实习时间/连续实习 + N 个月
     ("实习周期",
-     re.compile(r"实习(?:周期|期)(?:不少于|不短于|至少|最少|需满|要求|≥|>)?\s*"
-                r"[0-9一二三四五六七八九十]+\s*个?月"),
+     re.compile(rf"实习(?:周期|期|时间|时长)(?:不少于|不短于|至少|最少|需满|要求|满|≥|>)?\s*{_NUM}+\s*个?月"
+                rf"|连续实习\s*{_NUM}+\s*个?月"),
      "要求实习周期"),
+    # 每周到岗天数：每周…实习…N 天，或 N 天…实习…每周
     ("实习天数",
-     re.compile(r"每周[^。；;\n]{0,12}天[^。；;\n]{0,12}实习"
-                r"|实习[^。；;\n]{0,12}每周[^。；;\n]{0,8}天"),
+     re.compile(rf"每周[^。；;\n]{{0,14}}实习[^。；;\n]{{0,14}}{_NUM}+\s*天"
+                rf"|{_NUM}+\s*天[^。；;\n]{{0,10}}实习[^。；;\n]{{0,10}}每周"
+                rf"|每周[^。；;\n]{{0,10}}天[^。；;\n]{{0,10}}实习"),
      "要求每周实习天数"),
+    # 实习转正：实习可转正 / 实习转正 / 转正通道
     ("实习转正",
-     re.compile(r"实习转正|转正通道"),
+     re.compile(r"实习(?:可|能|期)?转正|转正通道"),
      "实习转正岗"),
 ]
 
 
-def _clause_before(text: str, pos: int) -> str:
-    """取命中点所在的那一小句，用来判断是不是「同时招聘别的实习岗」这类否定。"""
-    starts = [text.rfind(ch, 0, pos) for ch in "。；;\n"]
-    return text[max(0, max(starts) + 1):pos]
+def _sentence_around(text: str, start: int, end: int) -> str:
+    """取命中点所在的整句，用来判断是不是「同时招聘别的实习岗」这类否定。
+
+    整句而不是只取前半段：真实写法里「实习周期不少于3个月，本岗位同时还
+    招聘实习生」把限定写在了命中点后面，只看前面挡不住。
+    """
+    left = max([text.rfind(ch, 0, start) for ch in "。；;\n"])
+    rights = [text.find(ch, end) for ch in "。；;\n"]
+    rights = [pos for pos in rights if pos >= 0]
+    right = min(rights) if rights else len(text)
+    return text[max(0, left + 1):right]
 
 
 # 「线上面试勿投 / 线上勿扰」是说只接受线下，不是给了线上替代
@@ -158,10 +173,10 @@ def _scan_intern_body(field: str, text: str):
         return None
     for label, pattern, reason in _INTERN_BODY_PATTERNS:
         for match in pattern.finditer(text):
-            clause = _clause_before(text, match.start())
-            # 本岗位顺带还招实习生的，说的不是这个岗位
+            sentence = _sentence_around(text, match.start(), match.end())
+            # 本岗位顺带还招实习生的，说的不是这个岗位；限定写在前在后都算
             if re.search(r"(?:同时|另|还|也)(?:招聘|招|招募)|不招|非实习|无需实习|不需要实习",
-                         clause):
+                         sentence):
                 continue
             return {
                 "rule": "internship",
