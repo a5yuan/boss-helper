@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 
@@ -34,6 +35,7 @@ from src.utils.company_online import (
 )
 from src.utils.salary import salary_in_range
 from src.storage.writer import OutputWriter
+from src.storage import events
 from src.control import ConsoleController
 
 
@@ -222,6 +224,23 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
 
     writer = OutputWriter(config["output_dir"], tag=out_tag)
 
+    # 采集计数提前初始化：中途退出的路径也要能写 collect 事件。
+    success_count = 0
+    fail_count = 0
+    skip_count = 0
+    offline_count = 0        # 公司不在线、主动跳过
+    online_unknown_count = 0 # 在线状态读不出、放行采集
+
+    def _record_collect() -> None:
+        """写一条 collect 事件。写失败不影响采集收尾（events.record 自己兜住了）。"""
+        try:
+            events.record("collect", site or "", count=success_count,
+                          skipped=skip_count, excluded=offline_count,
+                          file=os.path.basename(writer.json_path),
+                          ok=success_count > 0)
+        except Exception as exc:  # noqa: BLE001
+            ctrl.log(f"    [!] 写统计事件失败（已忽略）: {exc}")
+
     criteria = SearchCriteria(
         query=query,
         city_code=city_code,
@@ -248,11 +267,13 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         if not browser.launch(adapter.home_url()):
             ctrl.log(f"[-] {browser_type.capitalize()} 启动失败")
             ctrl.status("error", "browser launch failed")
+            _record_collect()
             return
         if not _wait_platform_page(browser, adapter):
             ctrl.log(f"[-] 端口已启动，但没有找到 {adapter.display_name} 页面，拒绝继续")
             browser.close()
             ctrl.status("error", "platform page not found")
+            _record_collect()
             return
         ctrl.log(f"   [+] 新 {browser_type.capitalize()} 就绪（端口已确认）")
 
@@ -274,6 +295,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             if not target_page:
                 ctrl.log("[-] 未找到目标平台页面")
                 ctrl.status("error", "no target page")
+                _record_collect()
                 return
     else:
         # ---- 手动路线（CLI 类交互）：用户自行搜索/滚动后再分析当前页面 ----
@@ -300,6 +322,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
             if not target_page:
                 ctrl.log("[-] 未找到目标平台页面")
                 ctrl.status("error", "no target page")
+                _record_collect()
                 return
 
     # ===== Step 2: 连接 WebSocket =====
@@ -310,6 +333,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     if not browser.connect_ws(ws_url):
         ctrl.log("[-] WebSocket 连接失败")
         ctrl.status("error", "ws failed")
+        _record_collect()
         return
     ctrl.log("   [+] WebSocket 已连接 (调试通道激活)")
 
@@ -452,6 +476,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 ctrl.log("\n[*] 已停止")
                 browser.disconnect()
                 ctrl.status("stopped")
+                _record_collect()
                 return
 
             _dt("L3", "run_collection", "navigation_start", {"query": query, "city": city_name or city_code or "current"})
@@ -466,6 +491,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                 ctrl.log("\n[*] 已停止")
                 browser.disconnect()
                 ctrl.status("stopped")
+                _record_collect()
                 return
 
             if nav_status.get("state") == "login":
@@ -478,6 +504,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                         ctrl.log("\n[*] 已停止")
                         browser.disconnect()
                         ctrl.status("stopped")
+                        _record_collect()
                         return
 
                     # ── L3a: 主动导航到登录入口页 ──────────────────────────────
@@ -497,6 +524,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
                         ctrl.log("\n[*] 已停止")
                         browser.disconnect()
                         ctrl.status("stopped")
+                        _record_collect()
                         return
 
                     # ── L1: 重连 ─────────────────────────────────────────────
@@ -560,11 +588,6 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
     # ===== Step 4: 开始数据整理循环 =====
     ctrl.log(f"\n[Step 4] 开始运行数据整理 ...\n")
 
-    success_count = 0
-    fail_count = 0
-    skip_count = 0
-    offline_count = 0        # 公司不在线、主动跳过
-    online_unknown_count = 0 # 在线状态读不出、放行采集
     vue_hit = 0       # Vue 面板直读成功次数 (本地读取)
     start_idx = len(writer.all_jobs) + 1
     processed_sids = set()
@@ -861,5 +884,7 @@ def run_collection(count=20, safe_mode=True, fast=False, new_chrome=False,
         "json": writer.json_path, "md": writer.md_path, "total": len(writer.all_jobs),
         "reason": reason,
     }
+    # 写一条 collect 事件（中途退出的路径也已经写过，这里是正常收尾）。
+    _record_collect()
     ctrl.status("stopped" if stopped else "done", result)
     return result

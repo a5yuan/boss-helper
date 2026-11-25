@@ -35,6 +35,25 @@ stats  ↛ 不依赖 collector / adapters / ai（只消费它们写的事件）
 | `server/app.py` `/api/stats` | 聚合接口 |
 | `output/{platform}/events.jsonl` | 事件流 |
 
+## 写入点
+
+谁写什么事件：
+
+| 位置 | 事件 | 关键字段 |
+|---|---|---|
+| `src/ai/apply.py:run_apply` | `apply` | `status`（submitted / drafted / skipped）、`duration_ms` |
+| `src/ai/apply.py:run_apply` | `send_message` | `length`、`sent` |
+| `src/ai/dispatch.py:dispatch` | `apply` | BOSS 填草稿，**`status` 恒为 `drafted`** |
+| `src/ai/client.py:_post` | `ai_call` | `kind`、`model`、`tokens_in`、`tokens_out` |
+| `src/collector.py:run_collection` | `collect` | `count`、`skipped`、`excluded`、`file` |
+| `src/ai/pipeline.py:build_plan` | `screen` | `count`、`planned`、`skipped`、`excluded`、`file` |
+
+- `run_apply` 在三种情况下写 `apply` 事件：闸门拦下（`skipped`）、投递被确认
+  （`submitted`）、投递没被确认（`skipped`，**不能记成 submitted**）。
+- BOSS 的草稿走 `dispatch`，不在 `run_apply` 里——`run_apply` 只处理
+  `apply_then_chat`（智联）。两条路径都写 `apply` 事件，但 `status` 不同。
+- token 数从响应 `usage` 里取，取不到就留空，不编。
+
 ## 事件字段
 
 公共四字段：`ts`（ISO 到秒）、`platform`、`event`、`ok`。

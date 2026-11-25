@@ -75,7 +75,8 @@ def extract_json(text: str) -> dict:
 
 class LLMClient:
     def __init__(self, base_url: str, api_key: str = "", model: str = "",
-                 timeout: float = 90.0, temperature: float = 0.3, max_retries: int = 2):
+                 timeout: float = 90.0, temperature: float = 0.3, max_retries: int = 2,
+                 platform: str = "", kind: str = ""):
         if not base_url:
             raise LLMError("未配置 ai.base_url，请先在 config.yaml 里填写")
         if not model:
@@ -86,6 +87,10 @@ class LLMClient:
         self.timeout = timeout
         self.temperature = temperature
         self.max_retries = max_retries
+        # 事件流用的上下文：platform 决定事件写到哪个平台的文件，
+        # kind 区分这次调用是筛选还是生成招呼语。由调用方设置。
+        self.platform = platform
+        self.kind = kind
 
     @classmethod
     def from_config(cls) -> "LLMClient":
@@ -103,20 +108,41 @@ class LLMClient:
     def _post(self, payload: dict) -> str:
         last = None
         for attempt in range(self.max_retries + 1):
+            started = time.perf_counter()
             try:
                 with _llm_semaphore():
                     resp = requests.post(self.base_url + "/chat/completions",
                                          headers=self._headers(), json=payload,
                                          timeout=self.timeout)
                 if resp.status_code >= 400:
+                    self._record_call(None, time.perf_counter() - started, False)
                     raise LLMError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 data = resp.json()
+                self._record_call(data, time.perf_counter() - started, True)
                 return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
             except requests.RequestException as exc:
                 last = exc
+                self._record_call(None, time.perf_counter() - started, False)
                 if attempt < self.max_retries:
                     time.sleep(1.5 * (attempt + 1))
         raise LLMError(f"请求失败: {last}")
+
+    def _record_call(self, data, elapsed: float, ok: bool) -> None:
+        """写一条 ai_call 事件。
+
+        token 数从响应里的 usage 取，取不到就留空——不编。
+        写事件失败不影响模型调用本身。
+        """
+        usage = (data or {}).get("usage") or {} if isinstance(data, dict) else {}
+        tokens_in = usage.get("prompt_tokens")
+        tokens_out = usage.get("completion_tokens")
+        try:
+            from src.storage import events
+            events.record("ai_call", self.platform or "", kind=self.kind or "",
+                          model=self.model, tokens_in=tokens_in, tokens_out=tokens_out,
+                          duration_ms=int(elapsed * 1000), ok=ok)
+        except Exception:  # noqa: BLE001
+            pass
 
     def chat(self, messages: list, max_tokens: int = 1200,
              temperature: float | None = None, json_mode: bool = False) -> str:

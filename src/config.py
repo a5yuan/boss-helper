@@ -160,6 +160,26 @@ def platform_output_dir(platform: str) -> str:
     return output_dir
 
 
+def platform_of_output_file(path: str) -> str | None:
+    """从输出目录里的文件路径反推平台名（output/{platform}/x.json → {platform}）。
+
+    先按各平台已配置的输出目录逐个比对（config.yaml 可能把某平台的输出
+    指到别处），再退回按 output/ 的一级子目录判断。取不到返回 None。
+    """
+    if not path:
+        return None
+    target = os.path.abspath(path)
+    for name in known_platforms():
+        out = os.path.abspath(platform_output_dir(name))
+        if target.startswith(out + os.sep):
+            return name
+    base = os.path.abspath(output_base_dir())
+    if target.startswith(base + os.sep):
+        rest = target[len(base) + 1:].replace("\\", "/")
+        return rest.split("/", 1)[0] or None
+    return None
+
+
 def load_config(browser_type="chrome", platform=None):
     """加载 config.yaml，缺失项用默认值。
 

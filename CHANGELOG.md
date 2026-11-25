@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 投递统计的五个写入点接上事件流：`run_apply` 写 `apply`（`submitted` / `drafted` / `skipped`）与 `send_message`，BOSS 填草稿走 `dispatch` 写 `drafted`（ADR-0003：草稿对方收不到，不计入已投递），`client._post` 写 `ai_call`（token 数从响应 `usage` 取，取不到留空不编），采集结束写 `collect`，`build_plan` 结束写 `screen`。事件写失败一律不影响主流程（单测验证）
 - 投递事件流（`src/storage/events.py`）：按平台分文件的 append-only JSONL（`output/{platform}/events.jsonl`），`record()` 写入、`load()` 读取；`ts` 自动填到秒。写失败只记日志不抛异常（统计是旁路，不能拖垮投递），读取遇到坏行跳过并计数。旧的 `output/zhaopin/apply_audit.log` 可迁移进事件流，旧文件保留不删
 - AI 筛选前加确定性预筛（`src/ai/exclude.py`）：命中「线下面试 / 现场面试 / 到场到岗面谈 / 面试地点」或标题明确是实习生的岗位直接判 `skip`，不调模型；线上面试、视频面试、可线下面试、实习证明、实习期薪资、带实习生、非实习等不计入。计划条目记录 `skip_reason` / `excluded_by` / `exclude_snippet`，规则调整后预筛结果不参与模型缓存
 - 智联 JS 探针的真执行测试：`tests/js/` 用零依赖 DOM shim + `node --test` 跑 `src/js/zhaopin_*.js`，`tests/test_js_probes.py` 把结果并进 `python -m unittest`；没有 node 时跳过。新增探针必须有对应测试文件

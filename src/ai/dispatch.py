@@ -18,6 +18,7 @@ from src.core.js_loader import load_js
 from src.focus_lock import foreground
 from src.ai.activity import is_offline, parse_active_days
 from src.runtime import get_runtime
+from src.storage import events
 from src.tracking import track_key
 from src.utils import chat_input
 
@@ -174,6 +175,8 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
     todo = [it for it in items if (it.get("greeting") or "").strip()]
     stats = {"ok": 0, "failed": 0, "skipped": 0, "total": len(todo), "outcomes": []}
     tracker = tracker or get_runtime(platform, browser_type).tracker
+    # 事件流写到哪个平台的文件。dispatch 走的是 BOSS 适配器，默认就是 boss。
+    event_platform = platform or "boss"
 
     # ---- 硬约束：每日额度 + 不重复联系 ----
     # 点「立即沟通」对方能收到通知，还有人挂自动回复按学历筛人。
@@ -242,6 +245,7 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
                 continue
 
             log(f"  {_ts()} [{i}/{len(todo)}] {title} ...")
+            started = time.perf_counter()
             if not _ensure_page(bm):
                 stats["failed"] += 1
                 stats["outcomes"].append({"eid": eid, "ok": False, "reason": "没有可用标签页"})
@@ -330,6 +334,13 @@ def dispatch(items: list, browser_type: str = "chrome", gap=None,
                 _blur_input(bm)                              # 失焦才会触发草稿保存
                 time.sleep(_ai_cfg.get("fill_settle", 2.5))  # 再等一会儿，别急着导航
                 log(f"     {_ts()} [+] 已填 {filled.get('length', len(it['greeting']))} 字，未发送")
+                # BOSS 只填草稿不发送，对方收不到 —— 记成 drafted，不是 submitted
+                # （ADR-0003：草稿不能混进「已投递」总数）。
+                events.record("apply", event_platform, job_id=eid,
+                              company=it.get("company") or "", title=it.get("title") or "",
+                              status="drafted", reason="prefill_chat",
+                              duration_ms=int((time.perf_counter() - started) * 1000),
+                              ok=True)
                 try:
                     tracker.set(track_key(sid, eid), "shortlisted", it["greeting"][:80])
                 except Exception:

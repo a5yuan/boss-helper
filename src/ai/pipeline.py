@@ -11,7 +11,8 @@ from src.ai.client import LLMClient
 from src.ai.exclude import check_job, exclusion_result
 from src.ai.resume import ResumeLibrary, load_resume
 from src.ai.screen import screen_jobs
-from src.config import load_ai_config
+from src.config import load_ai_config, platform_of_output_file
+from src.storage import events
 
 
 class PlanError(Exception):
@@ -165,6 +166,8 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
     results = dict(prefiltered)
     if pending:
         client = LLMClient.from_config()
+        client.platform = platform_of_output_file(source_path) or ""
+        client.kind = "screen"
         log(f"[*] 待分析 {len(pending)} 条，模型 {ai_cfg['model']}")
         screened = screen_jobs(client, [job for _, job in pending], resume_for, limit=None,
                               concurrency=ai_cfg["concurrency"], on_event=log)
@@ -230,6 +233,13 @@ def build_plan(source_path: str, limit: int | None = None, min_score: int | None
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=2)
     log(f"[+] 计划已写入 {out_path}")
+
+    # 写一条 screen 事件。平台从计划所在目录反推，写失败不影响筛选收尾。
+    platform = platform_of_output_file(out_path) or ""
+    events.record("screen", platform, count=len(items),
+                  planned=plan["summary"]["planned"], skipped=plan["summary"]["skipped"],
+                  excluded=plan["summary"]["excluded"],
+                  file=os.path.basename(out_path), ok=True)
     return plan
 
 

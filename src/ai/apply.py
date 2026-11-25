@@ -10,12 +10,14 @@
 配置两个开关都开、传了 tracker（否则无法查重与计数）、未超过日限额。
 没有 tracker 时直接拒绝，避免出现「投了但没人记得」的状态。
 """
+import time
 from datetime import datetime
 
 from src.adapters.base import PlatformAdapter
 from src.adapters.registry import create_adapter
 from src.config import get_config, load_apply_config
 from src.core.browser import BrowserManager
+from src.storage import events
 from src.tracking import Tracker, track_key
 
 DELIVERY_MODES = {"prefill_chat", "apply_then_chat", "unsupported"}
@@ -94,11 +96,38 @@ def run_apply(adapter, job: dict, text: str, tracker: Tracker | None = None,
     """执行一条投递：能力闸 → 配置闸 → 日限额 → apply → tracking → send_message。
 
     返回的 ``submitted`` / ``sent`` 都来自适配器对页面的实际确认，不由这里推断。
+
+    同时往事件流写一条 ``apply`` 事件（``submitted`` / ``drafted`` / ``skipped``）。
+    事件写失败不影响投递——统计是旁路。
     """
     log = on_event or (lambda msg: None)
     mode = delivery_mode_of(adapter)
     job_id = str(job.get("job_id") or job.get("encrypt_job_id") or "")
     company = job.get("company") or ""
+    platform = getattr(adapter, "site", "") or ""
+    started = time.perf_counter()
+
+    def _elapsed_ms() -> int:
+        return int((time.perf_counter() - started) * 1000)
+
+    def _record_apply(status: str, reason: str = "") -> None:
+        """写一条 apply 事件。写失败不抛异常——统计是旁路，不能拖垮投递。"""
+        try:
+            events.record("apply", platform, job_id=job_id, company=company,
+                          title=job.get("title") or "", status=status,
+                          reason=reason, duration_ms=_elapsed_ms(),
+                          ok=status == "submitted")
+        except Exception as exc:  # noqa: BLE001
+            log(f"[apply] 写事件失败（已忽略）: {exc}")
+
+    def _record_send(sent: bool, length: int, reason: str) -> None:
+        """写一条 send_message 事件。写失败同样不影响投递。"""
+        try:
+            events.record("send_message", platform, job_id=job_id, company=company,
+                          length=length, sent=sent, duration_ms=_elapsed_ms(),
+                          ok=sent, reason=reason)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[apply] 写事件失败（已忽略）: {exc}")
 
     if mode != "apply_then_chat":
         return {"ok": False, "mode": mode, "submitted": False, "sent": False,
@@ -116,6 +145,7 @@ def run_apply(adapter, job: dict, text: str, tracker: Tracker | None = None,
 
     limit = int(cfg.get("daily_limit") or 0)
     if limit > 0 and applied_today(tracker) >= limit:
+        _record_apply("skipped", "skipped: daily_limit")
         return {"ok": False, "mode": mode, "submitted": False, "sent": False,
                 "reason": "skipped: daily_limit"}
 
@@ -128,13 +158,18 @@ def run_apply(adapter, job: dict, text: str, tracker: Tracker | None = None,
         log(f"[apply] 读 tracking 失败，按未投处理: {exc}")
         prior = {}
     if prior.get("status") == "applied":
+        _record_apply("skipped", "skipped: already_applied")
         return {"ok": True, "mode": mode, "submitted": False, "sent": False,
                 "reason": "skipped: already_applied", "tracking": prior}
 
     result = dict(adapter.apply(job_id) or {})
     result["mode"] = mode
     if not result.get("submitted"):
+        # 没投成就是没投成，不能记成 submitted（ADR-0003）。
+        _record_apply("skipped", str(result.get("reason") or "apply_not_confirmed"))
         return result
+
+    _record_apply("submitted")
 
     try:
         tracker.set(track_key("", job_id), "applied",
@@ -146,9 +181,11 @@ def run_apply(adapter, job: dict, text: str, tracker: Tracker | None = None,
     body = (text or "").strip()
     if not body:
         result.update({"sent": False, "send_reason": "no_text"})
+        _record_send(False, 0, "no_text")
         return result
 
     sent = dict(adapter.send_message(body) or {})
     result["sent"] = bool(sent.get("sent"))
     result["send"] = sent
+    _record_send(bool(sent.get("sent")), len(body), str(sent.get("reason") or ""))
     return result
