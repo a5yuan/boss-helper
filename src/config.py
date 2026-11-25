@@ -112,6 +112,54 @@ def _read_yaml():
     return {}
 
 
+def output_base_dir() -> str:
+    """输出根目录：各平台目录（output/{platform}）的父目录。
+
+    与 load_config 里算 output_dir 用的是同一份规则，避免两处口径不一致。
+    """
+    output_cfg = _read_yaml().get("output", {}) or {}
+    if not isinstance(output_cfg, dict):
+        output_cfg = {}
+    return output_cfg.get("dir", "") or _default_output_dir()
+
+
+def known_platforms() -> list[str]:
+    """已用到的平台名：输出目录里的子目录 + config.yaml 里自定义了输出目录的平台段。
+
+    统计页要跨平台读事件流，所以需要知道有哪些平台；不引适配器注册表，
+    避免下层模块依赖上层的适配器。
+    """
+    names = set()
+    base = output_base_dir()
+    try:
+        for entry in os.listdir(base):
+            if os.path.isdir(os.path.join(base, entry)):
+                names.add(entry)
+    except OSError:
+        pass
+    for name, section in (_read_yaml() or {}).items():
+        if isinstance(section, dict) and section.get("output_dir"):
+            names.add(name)
+    return sorted(names)
+
+
+def platform_output_dir(platform: str) -> str:
+    """某平台的输出目录。与 load_config 里的算法保持一致。"""
+    cfg = _read_yaml()
+    output_cfg = cfg.get("output", {}) or {}
+    if not isinstance(output_cfg, dict):
+        output_cfg = {}
+    base_output = output_cfg.get("dir", "") or _default_output_dir()
+    output_dir = os.path.join(base_output, platform)
+    platform_cfg = cfg.get(platform)
+    if isinstance(platform_cfg, dict):
+        platform_output = platform_cfg.get("output_dir", "")
+        if platform_output:
+            output_dir = (platform_output if os.path.isabs(platform_output)
+                          else os.path.join(PROJECT_DIR, platform_output))
+    return output_dir
+
+
 def load_config(browser_type="chrome", platform=None):
     """加载 config.yaml，缺失项用默认值。
 

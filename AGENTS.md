@@ -13,6 +13,7 @@
 | 改 FastAPI 接口 / Session / 启动器 / Vue 前端 | `docs/subsystems/server-api.md` | 知道单任务约束、事件流和 dev/prod 两种启动方式 |
 | 改 `/review` 复核队列、投递状态、定位、招呼语 | `docs/subsystems/review-queue.md` | 知道 encryptJobId 与 securityId 的区别，以及状态机 |
 | 改 AI 筛选 / 招呼语生成 / 批量投递 | `docs/subsystems/ai-pipeline.md` | 知道 screen / dispatch 两段边界、只填不发送的约束，以及 plan 文件结构 |
+| 改投递统计 / 事件流 / `/stats` 页面 | `docs/subsystems/stats.md` + `GLOSSARY.md` + `docs/adr/` | 知道 `submitted` 与 `drafted` 的区别，以及事件流的不变量 |
 | 改聊天框输入 / 招呼语写入 | `docs/code-standards.md`（浏览器输入）+ `tests/test_input_policy.py` | 知道只能走 `chat_input.fill_chat_input`、必须失焦，且 lint 会拦 |
 | 写新代码 / 重构 | `docs/code-standards.md` | 命名、依赖方向、错误处理、验证要求已明确 |
 | 改薪资解析 / 查重 / 投递状态等纯逻辑 | `docs/code-standards.md` + `tests/` | 先跑通现有测试，再补一条能覆盖改动的测试 |

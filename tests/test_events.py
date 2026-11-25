@@ -1,122 +1,213 @@
-"""Session 事件流：多任务 drain、快照与终态回退。"""
-import time
+"""事件流：写入、读取、坏行跳过、写失败不影响调用方。"""
+import json
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from src.control import GuiController
-from server.session import Session
-
-
-def _inject(session: Session, task_id: str, ctrl: GuiController, platform: str = "boss") -> None:
-    """直接往 tasks 注入 controller，不走线程；事件流只依赖 controller。"""
-    session.tasks[task_id] = {
-        "controller": ctrl,
-        "thread": None,
-        "params": {"site": platform, "browser_type": "chrome"},
-        "platform": platform,
-    }
-    session.current_task_id = task_id
+from src.storage import events
 
 
-class TestDrainEvents(unittest.TestCase):
-    def test_drains_all_controllers_with_own_task_id(self):
-        session = Session()
-        boss, fake = GuiController(), GuiController()
-        _inject(session, "t-boss", boss, "boss")
-        _inject(session, "t-fake", fake, "fake")
+class _TempPlatform:
+    """把事件文件指向临时目录，不碰真实的 output/。"""
 
-        boss.log("老板平台日志")
-        boss.progress(2, 10, {"ok": 1})
-        fake.log("假平台日志", level="error")
-        fake.status("running")
+    def __init__(self, root):
+        self.root = root
+        self._patches = []
 
-        events = session.drain_events()
-        # 按 start 顺序拼接，每条事件都追加 task_id 与 platform
-        self.assertEqual([e["task_id"] for e in events],
-                         ["t-boss", "t-boss", "t-fake", "t-fake"])
-        self.assertEqual([e["platform"] for e in events],
-                         ["boss", "boss", "fake", "fake"])
-        self.assertEqual(events[0]["msg"], "老板平台日志")
-        self.assertEqual((events[1]["done"], events[1]["total"]), (2, 10))
-        self.assertEqual(events[2]["level"], "error")
-        self.assertEqual(events[3]["state"], "running")
-        # 原字段一个不少
-        self.assertEqual(events[1]["stats"], {"ok": 1})
+    def start(self):
+        def fake_config(browser_type="chrome", platform=None):
+            name = platform or "boss"
+            path = os.path.join(self.root, name)
+            os.makedirs(path, exist_ok=True)
+            return {"output_dir": path}
 
-        # drain 后队列为空，不重复投递
-        self.assertEqual(session.drain_events(), [])
+        p = mock.patch("src.storage.events.get_config", side_effect=fake_config)
+        p.start()
+        self._patches.append(p)
 
-    def test_terminal_task_still_delivers_final_events(self):
-        """线程在两次轮询之间结束：最后的 done 事件不能丢。"""
-        session = Session()
-        ctrl = GuiController()
-        _inject(session, "t-old", ctrl)
-        ctrl.status("done")
-        # 模拟 _run 的 finally：任务移入终态，队列里还压着 done
-        session._retire("t-old", session.tasks.pop("t-old"))
+        def fake_platforms():
+            try:
+                return sorted(n for n in os.listdir(self.root)
+                              if os.path.isdir(os.path.join(self.root, n)))
+            except OSError:
+                return []
 
-        events = session.drain_events()
-        self.assertEqual([(e["type"], e.get("state"), e["task_id"], e["platform"]) for e in events],
-                         [("status", "done", "t-old", "boss")])
+        q = mock.patch("src.storage.events.known_platforms", side_effect=fake_platforms)
+        q.start()
+        self._patches.append(q)
+        return self
+
+    def stop(self):
+        for p in reversed(self._patches):
+            p.stop()
+        self._patches = []
+
+    def path(self, platform="boss"):
+        return os.path.join(self.root, platform, "events.jsonl")
 
 
-class TestSnapshotEvents(unittest.TestCase):
-    def test_snapshot_covers_all_live_tasks(self):
-        session = Session()
-        boss, fake = GuiController(), GuiController()
-        _inject(session, "t-boss", boss, "boss")
-        _inject(session, "t-fake", fake, "fake")
-        boss.state = "running"
-        boss.latest_progress = {"done": 3, "total": 10, "stats": {"ok": 2}}
-        fake.state = "paused"
-        fake.latest_progress = {"done": 1, "total": 5, "stats": {}}
-        fake.pending_action = {"reason": "扫码", "kind": "confirm"}
+class TestRecord(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = _TempPlatform(self.tmp.name).start()
+        self.addCleanup(self.env.stop)
 
-        events = session.snapshot_events()
-        by_task: dict[str, list[dict]] = {}
-        for ev in events:
-            by_task.setdefault(ev["task_id"], []).append(ev)
+    def test_record_writes_one_json_line(self):
+        events.record("apply", "boss", job_id="J1", company="甲公司", status="submitted")
 
-        # 两个活任务都要有快照，顺序与 start 一致
-        self.assertEqual(list(by_task), ["t-boss", "t-fake"])
+        with open(self.env.path(), "r", encoding="utf-8") as f:
+            lines = f.read().strip().split("\n")
+        self.assertEqual(len(lines), 1)
+        rec = json.loads(lines[0])
+        self.assertEqual(rec["event"], "apply")
+        self.assertEqual(rec["platform"], "boss")
+        self.assertEqual(rec["job_id"], "J1")
+        self.assertEqual(rec["status"], "submitted")
+        self.assertIs(rec["ok"], True)
+        # ts 自动填，调用方不传
+        self.assertTrue(rec["ts"])
 
-        boss_events = by_task["t-boss"]
-        self.assertEqual([e["type"] for e in boss_events], ["status", "progress"])
-        self.assertEqual(boss_events[0]["state"], "running")
-        # 快照自带平台，前端刷新后按平台铺任务，不用再查一次
-        self.assertTrue(all(e["platform"] == "boss" for e in boss_events))
-        self.assertEqual((boss_events[1]["done"], boss_events[1]["total"]), (3, 10))
-        self.assertEqual(boss_events[1]["stats"], {"ok": 2})
+    def test_record_appends_never_overwrites(self):
+        events.record("apply", "boss", job_id="J1")
+        events.record("apply", "boss", job_id="J2")
+        self.assertEqual(len(events.load("boss")), 2)
 
-        # need_action 只在有 pending_action 时产出
-        fake_events = by_task["t-fake"]
-        self.assertEqual([e["type"] for e in fake_events],
-                         ["status", "progress", "need_action"])
-        self.assertEqual(fake_events[0]["state"], "paused")
-        self.assertTrue(all(e["platform"] == "fake" for e in fake_events))
-        self.assertEqual(fake_events[2]["reason"], "扫码")
+    def test_ts_can_be_given_explicitly(self):
+        events.record("collect", "boss", ts="2020-01-01T00:00:00", count=3)
+        rec = events.load("boss")[0]
+        self.assertEqual(rec["ts"], "2020-01-01T00:00:00")
 
-    def test_snapshot_falls_back_to_terminal_task(self):
-        session = Session()
-        ctrl = GuiController()
-        ctrl.state = "stopped"
-        ctrl.latest_progress = {"done": 4, "total": 4, "stats": {"ok": 4}}
-        ctrl.pending_action = {"reason": "扫码", "kind": "confirm"}
-        # _terminal 存的是去掉 thread 的任务副本
-        session._terminal["t-old"] = (
-            {"controller": ctrl, "params": {}, "platform": "boss"},
-            time.time(),
-        )
-        session.current_task_id = "t-old"
+    def test_write_failure_never_raises(self):
+        """统计是旁路：写失败不能拖垮投递。"""
+        with mock.patch("builtins.open", side_effect=OSError("磁盘满了")):
+            events.record("apply", "boss", job_id="J1")   # 不抛异常
 
-        events = session.snapshot_events()
-        self.assertEqual([e["type"] for e in events],
-                         ["status", "progress", "need_action"])
-        self.assertTrue(all(e["task_id"] == "t-old" for e in events))
-        self.assertEqual(events[0]["state"], "stopped")
-        self.assertEqual((events[1]["done"], events[1]["total"]), (4, 4))
+    def test_write_failure_in_unwritable_dir_never_raises(self):
+        with mock.patch("src.storage.events.os.makedirs",
+                        side_effect=PermissionError("没有权限")):
+            events.record("apply", "boss", job_id="J1")
 
-    def test_snapshot_empty_without_tasks(self):
-        self.assertEqual(Session().snapshot_events(), [])
+    def test_none_fields_are_dropped(self):
+        events.record("apply", "boss", job_id="J1", reason=None, duration_ms=0)
+        rec = events.load("boss")[0]
+        self.assertNotIn("reason", rec)
+        self.assertEqual(rec["duration_ms"], 0)
+
+
+class TestLoad(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = _TempPlatform(self.tmp.name).start()
+        self.addCleanup(self.env.stop)
+
+    def _write(self, platform, *lines):
+        path = self.env.path(platform)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+
+    def test_bad_line_is_skipped_not_fatal(self):
+        self._write("boss",
+                    json.dumps({"ts": "2026-01-01T00:00:00", "event": "apply"}),
+                    "{这不是 JSON",
+                    json.dumps({"ts": "2026-01-01T00:01:00", "event": "apply"}))
+        got = events.load("boss")
+        self.assertEqual(len(got), 2)
+        self.assertEqual(got.bad_lines, 1)
+
+    def test_non_dict_line_is_skipped(self):
+        self._write("boss", "[1,2,3]", "\"abc\"")
+        got = events.load("boss")
+        self.assertEqual(got, [])
+        self.assertEqual(got.bad_lines, 2)
+
+    def test_missing_file_is_empty_not_error(self):
+        got = events.load("zhaopin")
+        self.assertEqual(got, [])
+        self.assertEqual(got.bad_lines, 0)
+
+    def test_platform_filter(self):
+        self._write("boss", json.dumps({"ts": "2026-01-01T00:00:00", "event": "apply"}))
+        self._write("zhaopin", json.dumps({"ts": "2026-01-01T00:00:00", "event": "apply"}))
+        self.assertEqual(len(events.load("boss")), 1)
+        self.assertEqual(len(events.load("zhaopin")), 1)
+        self.assertEqual(len(events.load()), 2)
+
+    def test_since_filters_by_ts(self):
+        self._write("boss",
+                    json.dumps({"ts": "2026-01-01T00:00:00", "event": "apply"}),
+                    json.dumps({"ts": "2026-01-02T00:00:00", "event": "apply"}))
+        got = events.load("boss", since="2026-01-02T00:00:00")
+        self.assertEqual(len(got), 1)
+
+    def test_sorted_by_ts(self):
+        self._write("boss",
+                    json.dumps({"ts": "2026-01-03T00:00:00", "event": "apply"}),
+                    json.dumps({"ts": "2026-01-01T00:00:00", "event": "apply"}))
+        got = events.load("boss")
+        self.assertEqual([r["ts"] for r in got],
+                         ["2026-01-01T00:00:00", "2026-01-03T00:00:00"])
+
+
+class TestLegacyMigration(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = _TempPlatform(self.tmp.name).start()
+        self.addCleanup(self.env.stop)
+
+    def _legacy(self, platform="zhaopin"):
+        path = os.path.join(self.tmp.name, platform, "apply_audit.log")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+
+    def test_migrates_apply_and_send_message(self):
+        legacy = self._legacy()
+        with open(legacy, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-11-23T18:17:25", "event": "apply",
+                                "job_id": "J1", "company": "甲公司", "ok": True,
+                                "submitted": True, "reason": ""}) + "\n")
+            f.write(json.dumps({"ts": "2026-11-23T18:17:27", "event": "send_message",
+                                "job_id": "J1", "company": "甲公司", "length": 191,
+                                "sent": True, "reason": ""}) + "\n")
+
+        moved = events.migrate_legacy_audit("zhaopin")
+        self.assertEqual(moved, 2)
+
+        rows = {r["event"]: r for r in events.load("zhaopin")}
+        self.assertEqual(rows["apply"]["status"], "submitted")
+        self.assertEqual(rows["apply"]["ts"], "2026-11-23T18:17:25")
+        self.assertEqual(rows["send_message"]["length"], 191)
+        self.assertIs(rows["send_message"]["sent"], True)
+
+    def test_migration_is_idempotent(self):
+        legacy = self._legacy()
+        with open(legacy, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-11-23T18:17:25", "event": "apply",
+                                "job_id": "J1", "submitted": True}) + "\n")
+        self.assertEqual(events.migrate_legacy_audit("zhaopin"), 1)
+        self.assertEqual(events.migrate_legacy_audit("zhaopin"), 0)
+        self.assertEqual(len(events.load("zhaopin")), 1)
+
+    def test_old_file_is_kept(self):
+        legacy = self._legacy()
+        with open(legacy, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-11-23T18:17:25", "event": "apply",
+                                "job_id": "J1", "submitted": True}) + "\n")
+        events.migrate_legacy_audit("zhaopin")
+        self.assertTrue(os.path.exists(legacy))
+
+    def test_unsubmitted_apply_migrates_as_drafted(self):
+        legacy = self._legacy()
+        with open(legacy, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": "2026-11-23T18:17:25", "event": "apply",
+                                "job_id": "J1", "submitted": False}) + "\n")
+        events.migrate_legacy_audit("zhaopin")
+        self.assertEqual(events.load("zhaopin")[0]["status"], "drafted")
 
 
 if __name__ == "__main__":
