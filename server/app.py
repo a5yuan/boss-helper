@@ -93,8 +93,11 @@ def platform_catalog() -> list[dict]:
     for info in pkgutil.iter_modules(src.adapters.__path__):
         try:
             importlib.import_module(f"{src.adapters.__name__}.{info.name}")
-            create_adapter(info.name)
+            adapter = create_adapter(info.name)
         except Exception:
+            continue
+        # hidden 适配器只给测试用，不进用户可见的平台选择
+        if getattr(adapter, "hidden", False):
             continue
         names.append(info.name)
 
@@ -444,7 +447,11 @@ def _platform_label(platform: str | None) -> str:
     for p in platform_catalog():
         if p["name"] == name:
             return p.get("display_name") or name
-    return name
+    # 目录里没有不一定是不存在（hidden 平台不在目录里），直接从适配器取显示名
+    try:
+        return getattr(create_adapter(name), "display_name", "") or name
+    except Exception:
+        return name
 
 
 def _with_browser(fn, prefer_chat: bool = False, platform: str | None = None):

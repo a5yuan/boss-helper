@@ -16,6 +16,11 @@ const { mode, toggle } = useTheme();
 const tab = ref<"logs" | "results">("logs");
 const showTour = ref(false);
 
+// 投递统计是独立页（跟 /review 一样由 FastAPI 直接吐 HTML），新开标签过去
+function openStats() {
+  window.open("/stats", "_blank", "noopener");
+}
+
 // 是否折叠配置面板
 const configCollapsed = ref(false);
 
@@ -110,6 +115,13 @@ onMounted(async () => {
           <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
+      </button>
+      <button
+        class="text-[12px] px-3 py-1.5 rounded-full border border-bg-border text-fg-muted hover:text-fg hover:bg-bg-raised transition-colors"
+        title="投递统计：按时间看投递量、成功率和热力图"
+        @click="openStats"
+      >
+        投递统计
       </button>
       <button
         class="text-[12px] px-3 py-1.5 rounded-full border border-bg-border text-fg-muted hover:text-fg transition-colors"

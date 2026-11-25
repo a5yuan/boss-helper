@@ -26,14 +26,20 @@ class TestPlatformCatalog(unittest.TestCase):
         names = [p["name"] for p in platforms]
         # 默认平台排第一，其余按名字排序
         self.assertEqual(names[0], "boss")
-        self.assertIn("fake", names)
         self.assertIn("zhaopin", names)
         self.assertEqual(names[1:], sorted(names[1:]))
 
         display = {p["name"]: p["display_name"] for p in platforms}
         self.assertEqual(display["boss"], "BOSS 直聘")
-        self.assertEqual(display["fake"], "假平台")
         self.assertEqual(display["zhaopin"], "智联招聘")
+
+    def test_hidden_adapter_is_not_user_selectable(self):
+        """fake 只给测试用，不该出现在用户能选的平台列表里。"""
+        names = [p["name"] for p in server_app.platform_catalog()]
+        self.assertNotIn("fake", names)
+        # 但适配器本身仍然可用（测试要能实例化）
+        from src.adapters.registry import create_adapter
+        self.assertEqual(create_adapter("fake").display_name, "假平台")
 
     def test_catalog_skips_modules_without_adapter(self):
         names = [p["name"] for p in server_app.platform_catalog()]

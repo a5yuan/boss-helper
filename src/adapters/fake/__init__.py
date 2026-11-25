@@ -33,6 +33,8 @@ class FakePlatformAdapter:
 
     site = "fake"
     display_name = "假平台"
+    # 只给测试用，不出现在用户可见的平台选择里
+    hidden = True
     delivery_mode = "prefill_chat"
 
     def __init__(self, page=None, click_timing=None):

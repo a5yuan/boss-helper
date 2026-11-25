@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 测试用的假平台不再出现在用户能选的平台列表里：适配器加 `hidden` 标记，`platform_catalog()` 扫描时跳过；`_platform_label()` 改为目录查不到时直接从适配器取显示名，错误文案不会退化成英文 `fake`
 - 预筛的实习信号补齐其他真实写法：`每周可实习 N 天`、`每周实习 N 天`、`能连续实习 N 个月`、`实习时间不少于 N 个月`、`实习可转正` 现在都能识别；「同时还招聘实习生」的限定写在命中点之后也能挡住（改为按整句判断，不只看前文）；同步修正 `exclude.py` 模块 docstring 里「JD 正文提到实习不算」的过期说明
 - 预筛补上「标题没写实习、但实质是实习」的漏排：JD 正文命中实习周期（`实习周期不少于 N 个月`）、每周实习天数、`实习转正通道` 时按实习岗排除；同一句里写着「同时还招聘实习生岗位」的不误伤。顺带修掉「线下面试、线上**勿投**」被当成「可线上」而放过的问题
 - 城市下拉里直辖市重复（北京、上海、天津、重庆各出现两次）且「全国」选项丢失：`city.json` 里直辖市有省级（`101010000`）和市级（`101010100`）两条同名记录，原来按 code 去重挡不住；现改为按 label 去重、同名保留市级编码，并在读取与刷新时都把「全国」补回首位（旧缓存无需手动清理）
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 主界面标题栏加「投递统计」按钮，新开标签进 `/stats`（统计页是独立页，不进 Vue 单页应用）
 - 投递统计页 `/stats`（`server/stats.html`）：静态页，跟 `/review` 一个路子。顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费），时间区域今天/24小时/7天/30天/全部，平台单选。柱状图（左柱投递量、右柱采集岗位数）、折线图（AI 调用量）、日历热力图（按周排行）全部手写 SVG，不引图表库（ADR-0002）。空数据时保留坐标轴和网格只显示「暂无数据」；`drafted` 与 `submitted` 有图例且草稿用虚线描边区分，不只靠颜色（ADR-0003）。支持 `?range=7d&platform=boss` 直接进某个视图
 - 投递统计页 `/stats` 与聚合接口 `GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin`：顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费）、按区间分桶的柱状图数据、AI 调用趋势数据、日历热力图。分桶在服务端做完，前端只画图；`today`/`24h` 按小时分桶，其余按天
 - 历史事件回填脚本 `scripts/backfill_events.py`：从 42 个 `jobs_*.json` 生成 `collect` 事件、从 25 个 `ai_plan_*.json` 生成 `screen` 事件，重复跑不产生重复事件（去重键 `event + file`——`jobs_*.json` 是累积文件，用 `ts` 做键会重复）。投递类不回填：当时没记，编不出来
