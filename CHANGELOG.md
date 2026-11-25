@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 投递统计页 `/stats` 与聚合接口 `GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin`：顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费）、按区间分桶的柱状图数据、AI 调用趋势数据、日历热力图。分桶在服务端做完，前端只画图；`today`/`24h` 按小时分桶，其余按天
+- 历史事件回填脚本 `scripts/backfill_events.py`：从 42 个 `jobs_*.json` 生成 `collect` 事件、从 25 个 `ai_plan_*.json` 生成 `screen` 事件，重复跑不产生重复事件（去重键 `event + file`——`jobs_*.json` 是累积文件，用 `ts` 做键会重复）。投递类不回填：当时没记，编不出来
 - 投递统计的五个写入点接上事件流：`run_apply` 写 `apply`（`submitted` / `drafted` / `skipped`）与 `send_message`，BOSS 填草稿走 `dispatch` 写 `drafted`（ADR-0003：草稿对方收不到，不计入已投递），`client._post` 写 `ai_call`（token 数从响应 `usage` 取，取不到留空不编），采集结束写 `collect`，`build_plan` 结束写 `screen`。事件写失败一律不影响主流程（单测验证）
 - 投递事件流（`src/storage/events.py`）：按平台分文件的 append-only JSONL（`output/{platform}/events.jsonl`），`record()` 写入、`load()` 读取；`ts` 自动填到秒。写失败只记日志不抛异常（统计是旁路，不能拖垮投递），读取遇到坏行跳过并计数。旧的 `output/zhaopin/apply_audit.log` 可迁移进事件流，旧文件保留不删
 - AI 筛选前加确定性预筛（`src/ai/exclude.py`）：命中「线下面试 / 现场面试 / 到场到岗面谈 / 面试地点」或标题明确是实习生的岗位直接判 `skip`，不调模型；线上面试、视频面试、可线下面试、实习证明、实习期薪资、带实习生、非实习等不计入。计划条目记录 `skip_reason` / `excluded_by` / `exclude_snippet`，规则调整后预筛结果不参与模型缓存

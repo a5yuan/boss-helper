@@ -137,10 +137,17 @@ def load(platform: str | None = None, since: str | None = None) -> EventList:
 
 
 def dedup_key(event: dict) -> str:
-    """回填幂等用的去重键：ts + event + file。
+    """回填幂等用的去重键。
 
-    没有 file 的事件退化成 ts + event + job_id。
+    任务书写的是 ``ts + event + file``。但 ``jobs_*.json`` 是**累积**文件——
+    同一个文件会被多次采集追加内容，每次回填算出的最新 ``collected_at`` 都
+    不同，用 ``ts`` 做键会让同一份文件每次回填都产生一条新事件。
+
+    所以回填来的事件用 ``event + file`` 做键：一个文件一条事件。
+    真实运行时记的事件没有 ``file`` 字段，退回 ``ts + event + job_id``。
     """
+    if event.get("file"):
+        return "|".join([str(event.get("event") or ""), str(event.get("file"))])
     parts = [
         str(event.get("ts") or ""),
         str(event.get("event") or ""),

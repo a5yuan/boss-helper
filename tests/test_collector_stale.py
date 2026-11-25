@@ -136,6 +136,8 @@ class TestCollectorBottomTermination(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out_dir, \
                 mock.patch("src.collector.BrowserManager", FakeBrowser), \
                 mock.patch("src.collector.get_config", return_value={"output_dir": out_dir}), \
+                mock.patch("src.storage.events.get_config",
+                           return_value={"output_dir": out_dir}), \
                 mock.patch("src.collector._interruptible_sleep"), \
                 mock.patch.object(adapter_cls, "list_jobs", side_effect=list_jobs_side_effect), \
                 mock.patch.object(adapter_cls, "reload", side_effect=reload_side_effect):

@@ -106,7 +106,8 @@ class TestFakePlatformRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out_dir:
             config = {"output_dir": out_dir}
             with mock.patch("src.collector.BrowserManager", FakeBrowser), \
-                    mock.patch("src.collector.get_config", return_value=config):
+                    mock.patch("src.collector.get_config", return_value=config), \
+                    mock.patch("src.storage.events.get_config", return_value=config):
                 run_collection(
                     count=2, site="fake", query="python", keyword_search=True,
                     tag="fakecheck", speed="fast", controller=ctrl,

@@ -813,6 +813,49 @@ def api_review_page():
         return HTMLResponse(content="<h1>review.html not found</h1>", status_code=404)
 
 
+# ── 投递统计 ────────────────────────────────────────────────────────────
+
+@app.get("/api/stats")
+def api_stats(range: str = "7d", platform: str = "all"):
+    """投递统计的聚合数据。
+
+    分桶在服务端做完，前端只画图。range 取 today / 24h / 7d / 30d / all，
+    platform 取 all / boss / zhaopin。
+    """
+    from src.storage import events
+    from src.storage.stats import RANGES, aggregate
+
+    range_key = range if range in RANGES else "7d"
+    platform_key = (platform or "all").strip() or "all"
+
+    try:
+        rows = events.load()
+    except Exception as exc:  # noqa: BLE001
+        tracer.entry("app.py:api_stats", "读取事件流失败", {"error": str(exc)}, scope="error")
+        rows = []
+
+    try:
+        data = aggregate(rows, range_key=range_key, platform=platform_key)
+    except Exception as exc:  # noqa: BLE001
+        tracer.entry("app.py:api_stats", "统计聚合失败", {"error": str(exc)}, scope="error")
+        return {"ok": False, "error": str(exc)}
+
+    data["ok"] = True
+    data["bad_lines"] = getattr(rows, "bad_lines", 0)
+    return data
+
+
+@app.get("/stats")
+def api_stats_page():
+    """投递统计页面（不依赖 Vue 构建产物）。"""
+    page_path = pathlib.Path(__file__).resolve().parent / "stats.html"
+    try:
+        with open(page_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except Exception:
+        return HTMLResponse(content="<h1>stats.html not found</h1>", status_code=404)
+
+
 # 生产模式：托管前端构建产物（webui/dist 复制到 server/static）
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 if os.path.isdir(_STATIC_DIR):

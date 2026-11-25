@@ -31,9 +31,71 @@ stats  ↛ 不依赖 collector / adapters / ai（只消费它们写的事件）
 | 文件 | 作用 |
 |---|---|
 | `src/storage/events.py` | `record()` 写入、`load()` 读取 |
+| `src/storage/stats.py` | 聚合：分桶、成功率、费用、日历热力图 |
+| `scripts/backfill_events.py` | 回填脚本（幂等） |
 | `server/stats.html` | 统计页（静态，手写 SVG） |
 | `server/app.py` `/api/stats` | 聚合接口 |
 | `output/{platform}/events.jsonl` | 事件流 |
+
+## 接口
+
+```
+GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin
+```
+
+分桶在服务端做完，前端只画图。分桶粒度跟着区间走：`today` / `24h` 按小时，
+其余按天。
+
+返回结构：
+
+```json
+{
+  "ok": true,
+  "range": "7d",
+  "platform": "all",
+  "granularity": "day",
+  "platforms": ["boss", "zhaopin"],
+  "buckets": [{"key": "2026-11-25", "label": "11-25",
+               "submitted": 1, "drafted": 0, "skipped": 0,
+               "collects": 3, "screens": 3,
+               "ai_calls": 0, "ai_duration_ms": 0,
+               "by_platform": {"boss": {"submitted": 1, "drafted": 0, "skipped": 0}}}],
+  "totals": {"submitted": 1, "drafted": 0, "skipped": 0, "failed": 0,
+             "attempts": 1, "success_rate": 1.0,
+             "today_submitted": 0, "today_drafted": 0,
+             "avg_duration_ms": null,
+             "ai_calls": 0, "collects": 32, "screens": 19,
+             "tokens_in": 0, "tokens_out": 0, "cost": null},
+  "heatmap": {"start": "2026-05-27", "end": "2026-11-25", "cells": [...]},
+  "event_count": 70,
+  "bad_lines": 0
+}
+```
+
+## 统计口径
+
+- **总投递数**只算 `submitted`。`drafted` 单独一个数（ADR-0003）。
+- **成功率** = （submitted + drafted）/ 真正动过手的次数。
+  闸门拦下的（`skipped: daily_limit` / `already_applied` / `unsupported:*`）
+  从没碰过平台，不进分母——它们不是失败。
+- **AI 花费**需要 `ai.pricing` 单价表（`{模型: {input: 元/千token, output: ...}}`）。
+  没配就返回 `null`，页面显示 token 数——不编金额。
+- **平均耗时**取 `apply` 事件的 `duration_ms` 均值。
+
+## 回填
+
+```
+.venv/Scripts/python scripts/backfill_events.py            # 全部平台
+.venv/Scripts/python scripts/backfill_events.py --dry-run  # 只看会写多少
+```
+
+从 `output/{platform}/jobs_*.json` 生成 `collect`、从 `ai_plan_*.json` 生成 `screen`。
+**投递类不回填**——当时没记，编不出来。
+
+幂等靠去重键：回填来的事件用 `event + file`（一个文件一条事件），
+运行时记的事件用 `ts + event + job_id`。任务书写的是 `ts + event + file`，
+但 `jobs_*.json` 是累积文件，同一个文件多次采集后 `ts` 会变，用 `ts` 做键
+会让同一份文件每次回填都多一条。
 
 ## 写入点
 

@@ -263,6 +263,8 @@ class TestConcurrentPlatforms(unittest.TestCase):
             mock.patch("src.collector.BrowserManager", self.factory),
             mock.patch("src.collector.get_config", side_effect=self.env.config),
             mock.patch("src.runtime.get_config", side_effect=self.env.config),
+            # 统计事件也写到临时目录，别污染真实的 output/
+            mock.patch("src.storage.events.get_config", side_effect=self.env.config),
             mock.patch("server.session.ai_after_collect"),
         ]
         for p in self.patches:
