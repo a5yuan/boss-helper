@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 投递统计页 `/stats`（`server/stats.html`）：静态页，跟 `/review` 一个路子。顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费），时间区域今天/24小时/7天/30天/全部，平台单选。柱状图（左柱投递量、右柱采集岗位数）、折线图（AI 调用量）、日历热力图（按周排行）全部手写 SVG，不引图表库（ADR-0002）。空数据时保留坐标轴和网格只显示「暂无数据」；`drafted` 与 `submitted` 有图例且草稿用虚线描边区分，不只靠颜色（ADR-0003）。支持 `?range=7d&platform=boss` 直接进某个视图
 - 投递统计页 `/stats` 与聚合接口 `GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin`：顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费）、按区间分桶的柱状图数据、AI 调用趋势数据、日历热力图。分桶在服务端做完，前端只画图；`today`/`24h` 按小时分桶，其余按天
 - 历史事件回填脚本 `scripts/backfill_events.py`：从 42 个 `jobs_*.json` 生成 `collect` 事件、从 25 个 `ai_plan_*.json` 生成 `screen` 事件，重复跑不产生重复事件（去重键 `event + file`——`jobs_*.json` 是累积文件，用 `ts` 做键会重复）。投递类不回填：当时没记，编不出来
 - 投递统计的五个写入点接上事件流：`run_apply` 写 `apply`（`submitted` / `drafted` / `skipped`）与 `send_message`，BOSS 填草稿走 `dispatch` 写 `drafted`（ADR-0003：草稿对方收不到，不计入已投递），`client._post` 写 `ai_call`（token 数从响应 `usage` 取，取不到留空不编），采集结束写 `collect`，`build_plan` 结束写 `screen`。事件写失败一律不影响主流程（单测验证）

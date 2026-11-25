@@ -47,11 +47,10 @@ def bucket_key(ts: datetime, granularity: str) -> str:
 
 
 def _bucket_label(key: str, granularity: str) -> str:
-    """桶的显示标签。小时桶只显示「25日 14时」，天桶显示「11-25」。"""
+    """桶的显示标签。小时桶只显示「14时」，天桶显示「11-25」。"""
     if granularity == "hour":
-        day = key[:10]
-        return f"{day[5:].replace('-', '/')}日 {key[11:]}时"
-    return key[5:].replace("-", "-")
+        return f"{key[11:]}时"
+    return key[5:]
 
 
 def _floor_hour(dt: datetime) -> datetime:
@@ -216,6 +215,11 @@ def aggregate(events: list, range_key: str = "7d", platform: str = "all",
             totals[ev + "s"] = totals.get(ev + "s", 0) + 1
             if key in bucket_map:
                 bucket_map[key][ev + "s"] = bucket_map[key].get(ev + "s", 0) + 1
+                if ev == "collect":
+                    n = e.get("count")
+                    if isinstance(n, (int, float)):
+                        bucket_map[key]["collected_count"] = (
+                            bucket_map[key].get("collected_count", 0) + int(n))
 
     success_rate = None
     if totals["attempts"]:
@@ -235,6 +239,7 @@ def aggregate(events: list, range_key: str = "7d", platform: str = "all",
             "ai_duration_ms": b.get("ai_duration_ms", 0),
             "collects": b.get("collects", 0),
             "screens": b.get("screens", 0),
+            "collected_count": b.get("collected_count", 0),
             "by_platform": b["by_platform"],
         })
 
@@ -335,10 +340,11 @@ def _heatmap(rows: list, now: datetime) -> dict:
             break
     else:
         first = len(cells)
+    cells = cells[first:]
     return {
         "start": cells[0]["date"] if cells else "",
         "end": cells[-1]["date"] if cells else "",
-        "cells": cells[first:],
+        "cells": cells,
     }
 
 

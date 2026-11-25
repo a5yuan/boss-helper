@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>投递统计 · BOSS Helper</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel2:#1c212a; --line:#262d38;
+    --fg:#e6e9ef; --dim:#8b95a5; --accent:#5b9cf8; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+    /* 图表配色：submitted 用强调色，drafted 用绿，两者明度接近但形状可分 */
+    --c-submitted:#5b9cf8; --c-drafted:#3fb950; --c-skipped:#4a5262; --c-ai:#d29922;
+    --c-boss:#5b9cf8; --c-zhaopin:#d29922; --c-collected:#7a5cc4;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;display:flex;flex-direction:column}
+
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px}
+  .back{color:var(--dim);text-decoration:none;font-size:12px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;white-space:nowrap}
+  .back:hover{color:var(--fg);border-color:var(--accent)}
+  .tabs{display:flex;gap:4px}
+  .tab{padding:5px 11px;border-radius:6px;cursor:pointer;color:var(--dim);font-size:13px;user-select:none}
+  .tab:hover{background:var(--panel2);color:var(--fg)}
+  .tab.on{background:var(--accent);color:#fff}
+  .filters{display:flex;gap:10px;align-items:center;margin-left:auto;flex-wrap:wrap}
+  select{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:5px 8px;font:inherit;font-size:13px;outline:none}
+  select:focus{border-color:var(--accent)}
+
+  main{flex:1;overflow-y:auto;padding:16px 20px 40px}
+
+  /* ── 顶部五个数字 ── */
+  .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .card .k{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:5px}
+  .card .v{font-size:26px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;line-height:1.2}
+  .card .s{font-size:11px;color:var(--dim);margin-top:2px}
+  .card.main .v{color:var(--c-submitted)}
+  .card.draft .v{color:var(--c-drafted)}
+
+  /* ── 图表 ── */
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:1000px){.charts{grid-template-columns:1fr}}
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px 10px}
+  .chart h2{font-size:13px;margin:0 0 2px;font-weight:600}
+  .chart .desc{font-size:11.5px;color:var(--dim);margin:0 0 8px}
+  .chart.full{grid-column:1/-1}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:6px 0 2px}
+  .legend .item{display:flex;align-items:center;gap:6px}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+  .swatch.submitted{background:var(--c-submitted)}
+  .swatch.drafted{background:var(--c-drafted)}
+  .swatch.skipped{background:var(--c-skipped)}
+  .swatch.ai{background:var(--c-ai)}
+  .swatch.collected{background:var(--c-collected)}
+  .swatch.hollow{background:transparent;border:2px dashed var(--c-drafted)}
+
+  svg{display:block;width:100%;overflow:visible}
+  .grid line{stroke:var(--line);stroke-width:1}
+  .axis line, .axis path{stroke:var(--line);stroke-width:1;fill:none}
+  .tick{fill:var(--dim);font-size:10px}
+  .bar-label{fill:var(--dim);font-size:9.5px}
+  .empty-note{fill:var(--dim);font-size:12px;text-anchor:middle}
+
+  /* ── 热力图 ── */
+  .heat-wrap{display:flex;gap:6px;align-items:flex-start}
+  .heat{display:flex;flex-direction:column;gap:3px}
+  .cell{width:13px;height:13px;border-radius:2px;background:var(--panel2);border:1px solid rgba(255,255,255,.04);flex:none}
+  .cell.future{background:transparent;border-color:rgba(255,255,255,.03)}
+  .cell.s1{background:#1f3a5f}.cell.s2{background:#2f5c96}.cell.s3{background:#4680c4}.cell.s4{background:#7fb0f0}
+  .cell.d1{background:#1c4028}.cell.d2{background:#2a663c}.cell.d3{background:#3f9c5c}.cell.d4{background:#6ede8f}
+  .heat-scale{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--dim);margin-top:10px}
+  .heat-scale .cell{width:11px;height:11px}
+  .months{display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--dim);text-align:right;flex:none;min-width:30px}
+  .mcell{height:13px;line-height:13px;white-space:nowrap}
+
+  .note{font-size:11.5px;color:var(--dim);margin-top:8px;line-height:1.7}
+  .note b{color:var(--fg);font-weight:600}
+  .err{color:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <h1>投递统计</h1>
+  <a class="back" href="/" title="返回助手主界面">← 返回助手</a>
+  <div class="tabs" id="ranges">
+    <div class="tab" data-r="today">今天</div>
+    <div class="tab" data-r="24h">24小时</div>
+    <div class="tab on" data-r="7d">7天</div>
+    <div class="tab" data-r="30d">30天</div>
+    <div class="tab" data-r="all">全部</div>
+  </div>
+  <div class="filters">
+    <select id="platform" title="选择平台"></select>
+  </div>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+
+  <div class="charts">
+    <div class="chart">
+      <h2>投递量</h2>
+      <p class="desc">按时间分桶，按平台分色堆叠</p>
+      <div class="legend">
+        <span class="item"><span class="swatch submitted"></span>已送达（submitted）</span>
+        <span class="item"><span class="swatch drafted"></span>仅草稿（drafted，未发送）</span>
+        <span class="item"><span class="swatch skipped"></span>跳过</span>
+        <span class="item"><span class="swatch collected"></span>采集到的岗位数</span>
+      </div>
+      <div id="bar"></div>
+      <p class="note" id="bar-note"></p>
+    </div>
+
+    <div class="chart">
+      <h2>AI 调用趋势</h2>
+      <p class="desc">模型调用次数与单次耗时</p>
+      <div class="legend">
+        <span class="item"><span class="swatch ai"></span><span id="line-series">调用次数</span></span>
+      </div>
+      <div id="line"></div>
+    </div>
+
+    <div class="chart full">
+      <h2>投递日历热力图</h2>
+      <p class="desc">按天格子，实心为已送达、描边为仅草稿</p>
+      <div class="heat-wrap">
+        <div class="months" id="heat-months"></div>
+        <div class="heat" id="heat"></div>
+      </div>
+      <div class="heat-scale">
+        <span>已送达</span>
+        <span class="cell s0"></span><span class="cell s1"></span><span class="cell s2"></span><span class="cell s3"></span><span class="cell s4"></span>
+        <span style="margin-left:12px">仅草稿</span>
+        <span class="cell d0"></span><span class="cell d1"></span><span class="cell d2"></span><span class="cell d3"></span><span class="cell d4"></span>
+      </div>
+      <p class="note" id="heat-note"></p>
+    </div>
+  </div>
+
+  <p class="note" id="foot"></p>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { range: '7d', platform: 'all', data: null, platforms: [] };
+
+const RANGE_LABEL = { today: '今天', '24h': '24小时', '7d': '7天', '30d': '30天', all: '全部' };
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function fmtMs(ms) {
+  if (ms == null) return '—';
+  if (ms < 1000) return ms + ' ms';
+  return (ms / 1000).toFixed(1) + ' s';
+}
+
+function fmtCost(c) {
+  if (c == null) return '—';
+  return '¥' + (c < 0.01 ? c.toFixed(4) : c.toFixed(2));
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+/* ── 顶部五个数字 ────────────────────────────────────────────── */
+function renderCards(d) {
+  const t = d.totals || {};
+  // 成功率：分母是「真的动过手」的次数，闸门拦下的不算失败
+  const rate = t.success_rate == null ? '—' : Math.round(t.success_rate * 100) + '%';
+  const cards = [
+    { cls: 'main', k: '总投递数', v: t.submitted || 0,
+      s: `已送达；仅草稿 ${t.drafted || 0} 条（对方收不到，不计入）` },
+    { cls: '', k: '成功率', v: rate,
+      s: `动过手 ${t.attempts || 0} 次，成功 ${(t.submitted || 0) + (t.drafted || 0)} 次` },
+    { cls: '', k: '今日投递', v: t.today_submitted || 0,
+      s: `今日草稿 ${t.today_drafted || 0} 条` },
+    { cls: '', k: '平均耗时', v: fmtMs(t.avg_duration_ms),
+      s: t.avg_duration_ms == null ? '暂无投递耗时数据' : '单条投递平均' },
+    { cls: '', k: 'AI 花费', v: fmtCost(t.cost),
+      s: t.cost == null
+        ? `未配单价表（token ${t.tokens_in || 0} / ${t.tokens_out || 0}）`
+        : `调用 ${t.ai_calls || 0} 次` },
+  ];
+  $('#cards').innerHTML = cards.map(c => `
+    <div class="card ${c.cls}">
+      <div class="k">${esc(c.k)}</div>
+      <div class="v">${esc(c.v)}</div>
+      <div class="s">${esc(c.s)}</div>
+    </div>`).join('');
+}
+
+/* ── SVG 基础工具 ────────────────────────────────────────────── */
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+/** 画网格 + 坐标轴。空数据时也画——否则看起来像加载失败。 */
+function drawFrame(svg, { w, h, pad, yMax, yTicks, xLabels, xCount, yFormat }) {
+  const g = svgEl('g', { class: 'grid' });
+  const plotH = h - pad.t - pad.b;
+  const plotW = w - pad.l - pad.r;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = yMax * i / yTicks;
+    const y = pad.t + plotH - plotH * (i / yTicks);
+    g.appendChild(svgEl('line', { x1: pad.l, x2: w - pad.r, y1: y, y2: y }));
+    const t = svgEl('text', { class: 'tick', x: pad.l - 6, y: y + 3.5, 'text-anchor': 'end' });
+    t.textContent = yFormat ? yFormat(v) : Math.round(v);
+    g.appendChild(t);
+  }
+  svg.appendChild(g);
+
+  const ax = svgEl('g', { class: 'axis' });
+  ax.appendChild(svgEl('line', { x1: pad.l, x2: w - pad.r, y1: pad.t + plotH, y2: pad.t + plotH }));
+  ax.appendChild(svgEl('line', { x1: pad.l, x2: pad.l, y1: pad.t, y2: pad.t + plotH }));
+  svg.appendChild(ax);
+
+  // x 轴标签：太密就隔几个显示。小时桶 24 个，只标每 3 小时
+  const step = xCount > 20 ? 3 : Math.ceil(xCount / 12);
+  (xLabels || []).forEach((lb, i) => {
+    if (i % step !== 0 && i !== xCount - 1) return;
+    const x = pad.l + (xCount <= 1 ? plotW / 2 : plotW * (i + 0.5) / xCount);
+    const t = svgEl('text', { class: 'tick', x: x, y: h - pad.b + 13, 'text-anchor': 'middle' });
+    t.textContent = lb;
+    svg.appendChild(t);
+  });
+}
+
+function emptyNote(svg, w, h, text) {
+  const t = svgEl('text', { class: 'empty-note', x: w / 2, y: h / 2 });
+  t.textContent = text;
+  svg.appendChild(t);
+}
+
+/* ── 柱状图：投递量，按平台分色堆叠 ────────────────────────────── */
+function renderBar(d) {
+  const box = $('#bar');
+  box.innerHTML = '';
+  const buckets = d.buckets || [];
+  const w = 640, h = 260, pad = { t: 14, r: 12, b: 34, l: 40 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  const svg = svgEl('svg', { viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none' });
+  svg.style.height = '260px';
+
+  // 左柱 = 投递量（submitted/drafted/skipped 堆叠），右柱 = 采集到的岗位数。
+  // 两者量级差很多（岗位数是几十，投递量是个位数），同轴画的话投递量会被压平，
+  // 所以采集量按自己的比例缩放，只用颜色和图例区分，不共用纵轴刻度。
+  const totals = buckets.map(b =>
+    (b.submitted || 0) + (b.drafted || 0) + (b.skipped || 0));
+  const collected = buckets.map(b => b.collected_count || 0);
+  const yMax = Math.max(1, ...totals);
+  const yStep = Math.max(1, Math.ceil(yMax / 4));
+  const top = yStep * Math.max(4, Math.ceil(yMax / yStep));
+  const cMax = Math.max(1, ...collected);
+
+  drawFrame(svg, {
+    w, h, pad, yMax: top, yTicks: 4,
+    xLabels: buckets.map(b => b.label),
+    xCount: buckets.length,
+    yFormat: v => Math.round(v),
+  });
+
+  if (!buckets.length || (!totals.some(v => v > 0) && !collected.some(v => v > 0))) {
+    emptyNote(svg, w, h, '暂无数据');
+    box.appendChild(svg);
+    return;
+  }
+
+  const gap = Math.min(10, plotW / buckets.length * 0.3);
+  const slot = buckets.length ? (plotW - gap * (buckets.length - 1)) / buckets.length : 0;
+  const bw = Math.max(2, slot / 2 - 1);
+
+  buckets.forEach((b, i) => {
+    const x0 = pad.l + i * (slot + gap);
+
+    // 左柱：投递量堆叠
+    let y = pad.t + plotH;
+    const stack = [
+      { v: b.submitted || 0, cls: 'submitted' },
+      { v: b.drafted || 0, cls: 'drafted' },
+      { v: b.skipped || 0, cls: 'skipped' },
+    ];
+    stack.forEach(seg => {
+      if (!seg.v) return;
+      const hgt = plotH * seg.v / top;
+      y -= hgt;
+      const rect = svgEl('rect', {
+        x: x0, y: y, width: Math.max(1, bw), height: Math.max(1, hgt),
+        fill: `var(--c-${seg.cls})`, rx: 1.5,
+      });
+      // 描边区分：草稿用虚线边，光靠颜色不够（ADR-0003）
+      if (seg.cls === 'drafted') {
+        rect.setAttribute('stroke', 'var(--c-drafted)');
+        rect.setAttribute('stroke-width', '1');
+        rect.setAttribute('stroke-dasharray', '2 1');
+      }
+      const title = svgEl('title');
+      title.textContent = `${b.label} · ${seg.cls} ${seg.v}`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
+    });
+
+    // 右柱：采集到的岗位数（按自己的量级缩放）
+    const nc = b.collected_count || 0;
+    if (nc) {
+      const hgt = plotH * nc / cMax;
+      const rect = svgEl('rect', {
+        x: x0 + bw + 2, y: pad.t + plotH - hgt,
+        width: Math.max(1, bw), height: Math.max(1, hgt),
+        fill: 'var(--c-collected)', rx: 1.5, opacity: '.85',
+      });
+      const title = svgEl('title');
+      title.textContent = `${b.label} · 采集 ${nc} 条岗位`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
+    }
+  });
+
+  box.appendChild(svg);
+  $('#bar-note').textContent = collected.some(v => v > 0)
+    ? `左柱为投递量（纵轴），右柱为采集到的岗位数（各自缩放，峰值 ${cMax} 条）`
+    : '';
+}
+
+/* ── 折线图：AI 调用量 + 采集/筛选量 ────────────────────────── */
+function renderLine(d) {
+  const box = $('#line');
+  box.innerHTML = '';
+  const buckets = d.buckets || [];
+  const w = 640, h = 260, pad = { t: 14, r: 12, b: 34, l: 40 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  const svg = svgEl('svg', { viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none' });
+  svg.style.height = '260px';
+
+  // AI 调用是主线；还没有 ai_call 事件时退而画采集/筛选次数，
+  // 免得整张图是空的（空图看起来像加载失败）。
+  const hasAi = buckets.some(b => (b.ai_calls || 0) > 0);
+  const series = hasAi
+    ? { label: 'AI 调用次数', values: buckets.map(b => b.ai_calls || 0), cls: 'ai' }
+    : { label: '采集 + 筛选次数', values: buckets.map(b => (b.collects || 0) + (b.screens || 0)), cls: 'ai' };
+
+  const maxV = Math.max(1, ...series.values);
+  const yStep = Math.max(1, Math.ceil(maxV / 4));
+  const top = yStep * Math.max(4, Math.ceil(maxV / yStep));
+
+  drawFrame(svg, {
+    w, h, pad, yMax: top, yTicks: 4,
+    xLabels: buckets.map(b => b.label),
+    xCount: buckets.length,
+    yFormat: v => Math.round(v),
+  });
+
+  if (!buckets.length || !series.values.some(v => v > 0)) {
+    emptyNote(svg, w, h, '暂无数据');
+    box.appendChild(svg);
+    return;
+  }
+
+  const xAt = i => buckets.length <= 1
+    ? pad.l + plotW / 2
+    : pad.l + plotW * (i + 0.5) / buckets.length;
+  const yAt = v => pad.t + plotH - plotH * (v / top);
+
+  const area = svgEl('path', {
+    d: `M ${xAt(0)},${pad.t + plotH} L ` + series.values.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' L ')
+       + ` L ${xAt(series.values.length - 1)},${pad.t + plotH} Z`,
+    fill: 'var(--c-ai)', opacity: '.16',
+  });
+  svg.appendChild(area);
+  svg.appendChild(svgEl('polyline', {
+    points: series.values.map((v, i) => `${xAt(i)},${yAt(v)}`).join(' '),
+    fill: 'none', stroke: 'var(--c-ai)', 'stroke-width': '2',
+    'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+  }));
+  series.values.forEach((v, i) => {
+    const c = svgEl('circle', { cx: xAt(i), cy: yAt(v), r: 2.6, fill: 'var(--c-ai)' });
+    const title = svgEl('title');
+    title.textContent = `${buckets[i].label} · ${v} 次`;
+    c.appendChild(title);
+    svg.appendChild(c);
+  });
+
+  box.appendChild(svg);
+  $('#line-series').textContent = series.label;
+}
+
+/* ── 日历热力图 ───────────────────────────────────────────────── */
+function heatClass(v, prefix) {
+  if (!v) return '';
+  const lv = v <= 1 ? 1 : v <= 2 ? 2 : v <= 5 ? 3 : 4;
+  return `${prefix}${lv}`;
+}
+
+/** 日历网格：按周排成行，每行 7 格（周一到周日）。 */
+function renderHeat(d) {
+  const hm = d.heatmap || { cells: [] };
+  const cells = hm.cells || [];
+  if (!cells.length) {
+    $('#heat').innerHTML = '';
+    $('#heat-months').innerHTML = '';
+    $('#heat-note').innerHTML = '暂无数据。';
+    return;
+  }
+
+  // 补齐前面的空格，让每周从周一开始
+  const firstDate = new Date(cells[0].date + 'T00:00:00');
+  const lead = (firstDate.getDay() + 6) % 7;   // 周一=0
+
+  // 月份刻度：每行 7 格，记录每周第一格属于哪个月
+  const weeks = [];
+  let cur = [];
+  for (let i = 0; i < lead; i++) cur.push(null);
+  cells.forEach(c => {
+    cur.push(c);
+    if (cur.length === 7) { weeks.push(cur); cur = []; }
+  });
+  if (cur.length) {
+    while (cur.length < 7) cur.push(null);
+    weeks.push(cur);
+  }
+
+  // 网格：每行 7 格
+  const cellHtml = c => {
+    if (!c) return '<div class="cell future"></div>';
+    const sub = c.submitted || 0, draft = c.drafted || 0;
+    let cls = '';
+    if (sub) cls = heatClass(sub, 's');
+    else if (draft) cls = heatClass(draft, 'd');
+    const title = `${c.date}｜已送达 ${sub}｜仅草稿 ${draft}｜跳过 ${c.skipped || 0}`;
+    const extra = (!sub && draft) ? ' style="border-style:dashed"' : '';
+    return `<div class="cell ${cls}"${extra} title="${esc(title)}"></div>`;
+  };
+
+  $('#heat').innerHTML = weeks.map(week =>
+    `<div style="display:flex;gap:3px">` + week.map(cellHtml).join('') + `</div>`
+  ).join('');
+
+  // 月份标签：左边一列，跟着每周第一格走
+  $('#heat-months').innerHTML = weeks.map(week => {
+    const first = week.find(c => c);
+    const m = first ? first.date.slice(0, 7) : '';
+    return `<div class="mcell">${m ? m.slice(5) + '月' : ''}</div>`;
+  }).join('');
+
+  $('#heat-note').innerHTML =
+    `范围 <b>${esc(hm.start)}</b> 到 <b>${esc(hm.end)}</b>，共 ${cells.length} 天，` +
+    `每周一行（周一到周日）。实心深浅表示已送达数量，绿色虚线格表示当天只有仅草稿（未发送）。`;
+}
+
+/* ── 底部说明 ─────────────────────────────────────────────────── */
+function renderFoot(d) {
+  const t = d.totals || {};
+  const bits = [];
+  bits.push(`区间 <b>${esc(RANGE_LABEL[d.range] || d.range)}</b>，平台 <b>${esc(d.platform === 'all' ? '全部' : d.platform)}</b>`);
+  bits.push(`读入事件 <b>${d.event_count || 0}</b> 条`);
+  if (d.bad_lines) bits.push(`跳过坏行 <b>${d.bad_lines}</b> 条`);
+  bits.push(`采集 <b>${t.collects || 0}</b> 次，筛选 <b>${t.screens || 0}</b> 次`);
+  $('#foot').innerHTML = bits.join(' ｜ ');
+}
+
+async function load() {
+  try {
+    const d = await api(`/api/stats?range=${encodeURIComponent(state.range)}&platform=${encodeURIComponent(state.platform)}`);
+    if (!d.ok) throw new Error(d.error || '接口返回失败');
+    state.data = d;
+    renderCards(d);
+    renderBar(d);
+    renderLine(d);
+    renderHeat(d);
+    renderFoot(d);
+  } catch (e) {
+    $('#cards').innerHTML = `<div class="card"><div class="k">加载失败</div><div class="v err">!</div><div class="s">${esc(e.message)}</div></div>`;
+    ['#bar', '#line', '#heat'].forEach(s => $(s).innerHTML = '');
+  }
+}
+
+function renderPlatformSelect() {
+  const sel = $('#platform');
+  const opts = [{ name: 'all', display_name: '全部平台' }]
+    .concat(state.platforms.map(p => ({ name: p.name, display_name: p.display_name || p.name })));
+  sel.innerHTML = opts.map(p =>
+    `<option value="${esc(p.name)}"${p.name === state.platform ? ' selected' : ''}>${esc(p.display_name)}</option>`
+  ).join('');
+}
+
+$('#ranges').querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  $('#ranges').querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  state.range = t.dataset.r;
+  load();
+});
+
+$('#platform').onchange = e => { state.platform = e.target.value; load(); };
+
+async function boot() {
+  // 支持 ?range=7d&platform=boss 直接进某个视图，方便分享链接
+  const q = new URLSearchParams(location.search);
+  const r = q.get('range');
+  if (r && RANGE_LABEL[r]) {
+    state.range = r;
+    $('#ranges').querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x.dataset.r === r));
+  }
+  const p = q.get('platform');
+  if (p) state.platform = p;
+
+  try {
+    const pl = await api('/api/platforms');
+    state.platforms = pl.platforms || [];
+    renderPlatformSelect();
+  } catch (e) {
+    /* 平台列表拿不到就只显示「全部」 */
+  }
+  await load();
+}
+boot();
+</script>
+</body>
+</html>

@@ -134,11 +134,30 @@ GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin
 - 时间区域选「今天」时柱状图按小时分桶，选「7天/30天」按天分桶。粒度跟着区间走，否则要么只有一根柱子要么挤成一片。
 - 空数据时保留坐标轴和网格，只显示「暂无数据」，否则看起来像加载失败。
 
+## 页面 `/stats`
+
+`server/stats.html`，静态页，跟 `/review` 一个路子（FastAPI 直接吐 HTML，不走 Vue 构建）。
+配色复用 `server/review.html` 的 CSS 变量。
+
+- 顶部五个数字：总投递数（只算 `submitted`）、成功率、今日投递、平均耗时、AI 花费
+- 时间区域：今天 / 24小时 / 7天 / 30天 / 全部（不做自定义日期）
+- 平台选择：单选 + 「全部」
+- 柱状图：左柱投递量（submitted / drafted / skipped 堆叠），右柱采集到的岗位数
+- 折线图：AI 调用量（还没有 `ai_call` 事件时退而画采集 + 筛选次数）
+- 热力图：日历热力图，按周排成行（周一到周日），实心深浅 = 已送达、绿色虚线 = 仅草稿
+- 全部手写 SVG，不引任何图表库（ADR-0002）
+- 空数据时保留坐标轴和网格，中间显示「暂无数据」
+- `drafted` 和 `submitted` 必须有图例区分，不能只靠颜色（ADR-0003）
+
+页面支持 `?range=7d&platform=boss` 直接进某个视图，方便分享链接。
+
 ## 测试方式
 
 - `python -m unittest tests.test_events`：写入、读取、坏行跳过、写失败不影响调用方。
 - `python -m unittest tests.test_stats_api`：区间过滤、平台过滤、分桶粒度。
-- 页面本身无自动化测试，改动后用 `/stats` 手工看一眼三种图和空数据状态。
+- `python -m unittest tests.test_backfill`：回填幂等。
+- `python -m unittest tests.test_stats_page`：页面的硬约束扫描（无图表库、SVG、图例、主题一致）。
+- 页面本身无自动化渲染测试，改动后用 `/stats` 手工看一眼三种图和空数据状态。
 
 `tests/test_session_events.py` 是另一回事：它测的是 Session 的 WebSocket 事件流
 （多任务 drain / 快照），与统计事件流无关，只是名字撞了。
