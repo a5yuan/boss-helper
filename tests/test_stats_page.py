@@ -48,9 +48,9 @@ class TestStatsPageConstraints(unittest.TestCase):
         """ADR-0003：草稿与已送达要有图例，不能只靠颜色区分。"""
         self.assertIn("submitted", self.src)
         self.assertIn("drafted", self.src)
-        # 图例里两个都要有文字说明
+        # 图例里两个都要有文字说明（ADR-0004 后草稿改称「草稿填写」）
         self.assertIn("已送达", self.src)
-        self.assertIn("仅草稿", self.src)
+        self.assertIn("草稿填写", self.src)
         # 草稿还有虚线描边，不止靠颜色
         self.assertIn("stroke-dasharray", self.src)
 
@@ -72,13 +72,18 @@ class TestStatsPageConstraints(unittest.TestCase):
         self.assertNotIn('type="radio"', self.src)   # 用下拉，不用单选按钮
         self.assertNotIn('type="checkbox"', self.src)
 
-    def test_reuses_review_page_theme_variables(self):
-        """主题跟 /review 一致：同一套 CSS 变量。"""
-        with open(os.path.join(ROOT, "server", "review.html"), "r", encoding="utf-8") as f:
-            review = f.read()
-        for var in ("--bg", "--panel", "--panel2", "--line", "--fg", "--dim", "--accent"):
+    def test_theme_has_light_and_dark_tokens(self):
+        """明暗两套配色，变量名与主界面一致（docs/subsystems/stats.md）。
+
+        旧口径是「跟 /review 共用一套深色变量」，ADR-0004 之后页面自带
+        明暗两套并用 html.dark 切换，所以检查点改为主界面的 token 名。
+        """
+        for var in ("--app-bg", "--bg-panel", "--bg-raised", "--bg-border",
+                    "--fg", "--fg-muted", "--accent"):
             self.assertIn(f"{var}:", self.src, f"统计页缺少主题变量 {var}")
-            self.assertIn(f"{var}:", review, f"复核页缺少主题变量 {var}")
+        self.assertIn("html.dark", self.src)
+        self.assertIn("boss-theme", self.src)
+        self.assertIn("localStorage.setItem", self.src)
 
     def test_bucketing_is_server_side(self):
         """分桶在服务端做，前端不自己算。"""
