@@ -114,7 +114,7 @@ def _is_gate_skip(event: dict) -> bool:
 
 def _empty_bucket() -> dict:
     return {"submitted": 0, "drafted": 0, "skipped": 0, "failed": 0,
-            "by_platform": {}}
+            "tokens_in": 0, "tokens_out": 0, "by_platform": {}}
 
 
 def aggregate(events: list, range_key: str = "7d", platform: str = "all",
@@ -197,17 +197,20 @@ def aggregate(events: list, range_key: str = "7d", platform: str = "all",
 
         elif ev == "ai_call":
             totals["ai_calls"] += 1
-            for field, key_name in (("tokens_in", "tokens_in"),
-                                    ("tokens_out", "tokens_out")):
+            for field in ("tokens_in", "tokens_out"):
                 val = e.get(field)
                 if isinstance(val, (int, float)):
-                    totals[key_name] += int(val)
+                    totals[field] += int(val)
             if key in bucket_map:
-                bucket_map[key]["ai_calls"] = bucket_map[key].get("ai_calls", 0) + 1
+                b = bucket_map[key]
+                b["ai_calls"] = b.get("ai_calls", 0) + 1
+                for field in ("tokens_in", "tokens_out"):
+                    val = e.get(field)
+                    if isinstance(val, (int, float)):
+                        b[field] += int(val)
                 dur = e.get("duration_ms")
                 if isinstance(dur, (int, float)):
-                    bucket_map[key]["ai_duration_ms"] = (
-                        bucket_map[key].get("ai_duration_ms", 0) + int(dur))
+                    b["ai_duration_ms"] = b.get("ai_duration_ms", 0) + int(dur)
 
         elif ev in ("collect", "screen"):
             # 采集与筛选也进桶：柱状图看的是投递量，但折线图要有东西可画，
@@ -237,6 +240,8 @@ def aggregate(events: list, range_key: str = "7d", platform: str = "all",
             "skipped": b["skipped"],
             "ai_calls": b.get("ai_calls", 0),
             "ai_duration_ms": b.get("ai_duration_ms", 0),
+            "tokens_in": b["tokens_in"],
+            "tokens_out": b["tokens_out"],
             "collects": b.get("collects", 0),
             "screens": b.get("screens", 0),
             "collected_count": b.get("collected_count", 0),

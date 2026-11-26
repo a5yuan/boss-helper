@@ -176,6 +176,13 @@ class TestAggregate(unittest.TestCase):
         b = {x["key"]: x for x in out["buckets"]}["2026-11-25"]
         self.assertEqual(b["ai_calls"], 2)
         self.assertEqual(b["ai_duration_ms"], 1700)
+        # 分桶也要带 token，折线图才有东西画（ADR-0004）
+        self.assertEqual(b["tokens_in"], 300)
+        self.assertEqual(b["tokens_out"], 110)
+        self.assertGreater(b["tokens_in"] + b["tokens_out"], 0)
+        self.assertEqual(
+            sum(x["tokens_in"] + x["tokens_out"] for x in out["buckets"]),
+            out["totals"]["tokens_in"] + out["totals"]["tokens_out"])
 
     def test_cost_is_none_without_pricing(self):
         rows = [_ev("2026-11-25T10:00:00", event="ai_call", model="m",
@@ -218,6 +225,10 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(len(out["buckets"]), 7)
         self.assertEqual(out["totals"]["submitted"], 0)
         self.assertIsNone(out["totals"]["success_rate"])
+        # 空桶也要有 token 字段（0），前端不用判空
+        for b in out["buckets"]:
+            self.assertEqual(b["tokens_in"], 0)
+            self.assertEqual(b["tokens_out"], 0)
 
 
 class TestStatsApi(unittest.TestCase):
