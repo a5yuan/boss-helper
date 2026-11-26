@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - 主界面标题栏加「投递统计」按钮，新开标签进 `/stats`（统计页是独立页，不进 Vue 单页应用）
-- 投递统计页 `/stats`（`server/stats.html`）：静态页，跟 `/review` 一个路子。顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费），时间区域今天/24小时/7天/30天/全部，平台单选。柱状图（左柱投递量、右柱采集岗位数）、折线图（AI 调用量）、日历热力图（按周排行）全部手写 SVG，不引图表库（ADR-0002）。空数据时保留坐标轴和网格只显示「暂无数据」；`drafted` 与 `submitted` 有图例且草稿用虚线描边区分，不只靠颜色（ADR-0003）。支持 `?range=7d&platform=boss` 直接进某个视图
-- 投递统计页 `/stats` 与聚合接口 `GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin`：顶部五个数字（总投递数只算 `submitted`、成功率、今日投递、平均耗时、AI 花费）、按区间分桶的柱状图数据、AI 调用趋势数据、日历热力图。分桶在服务端做完，前端只画图；`today`/`24h` 按小时分桶，其余按天
+- 投递统计页 `/stats`（`server/stats.html`）：静态页，跟 `/review` 一个路子。顶部五个数字（草稿填写数、动作完成率、今日草稿、平均耗时、AI Token），时间区域今天/24小时/7天/30天/全部，平台单选。柱状图（左柱投递量、右柱采集岗位数）、折线图（每桶 token 合计）、日历热力图（按周排行）全部手写 SVG，不引图表库（ADR-0002）。空数据时保留坐标轴和网格只显示「暂无数据」；`drafted` 与 `submitted` 有图例且草稿用虚线描边区分，不只靠颜色（ADR-0003）。支持 `?range=7d&platform=boss` 直接进某个视图
+- 投递统计页 `/stats` 与聚合接口 `GET /api/stats?range=today|24h|7d|30d|all&platform=all|boss|zhaopin`：顶部五个数字（草稿填写数、动作完成率、今日草稿、平均耗时、AI Token）、按区间分桶的柱状图数据、token 趋势数据、日历热力图。分桶在服务端做完，前端只画图；`today`/`24h` 按小时分桶，其余按天
 - 历史事件回填脚本 `scripts/backfill_events.py`：从 42 个 `jobs_*.json` 生成 `collect` 事件、从 25 个 `ai_plan_*.json` 生成 `screen` 事件，重复跑不产生重复事件（去重键 `event + file`——`jobs_*.json` 是累积文件，用 `ts` 做键会重复）。投递类不回填：当时没记，编不出来
 - 投递统计的五个写入点接上事件流：`run_apply` 写 `apply`（`submitted` / `drafted` / `skipped`）与 `send_message`，BOSS 填草稿走 `dispatch` 写 `drafted`（ADR-0003：草稿对方收不到，不计入已投递），`client._post` 写 `ai_call`（token 数从响应 `usage` 取，取不到留空不编），采集结束写 `collect`，`build_plan` 结束写 `screen`。事件写失败一律不影响主流程（单测验证）
 - 投递事件流（`src/storage/events.py`）：按平台分文件的 append-only JSONL（`output/{platform}/events.jsonl`），`record()` 写入、`load()` 读取；`ts` 自动填到秒。写失败只记日志不抛异常（统计是旁路，不能拖垮投递），读取遇到坏行跳过并计数。旧的 `output/zhaopin/apply_audit.log` 可迁移进事件流，旧文件保留不删
@@ -58,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - BOSS 迁移兼容：继续使用 `profiles/{browser}_profile` 与 `.cdp_port_{browser}`，首次读取时把旧 `output/tracking.json` 复制到 `output/boss/tracking.json`
 
 ### Changed
+
+- 统计页主指标从「总投递数（只算 `submitted`）」改成「草稿填写数」，送达数退到副标题（ADR-0004）。原因：BOSS 全走 `prefill_chat`，一天填 25 份草稿，而顶部只显示智联那 1 条送达——数字不动、人却在干活，看着像统计坏了。标题刻意不叫「投递数」：那 25 份草稿一家公司都没收到
+- 「成功率」改名「动作完成率」：原口径的分母本身就等于分子加上失败数，只要不报错就恒 100%，它测的是有没有报错，不是投得成不成。改成真实口径需要「草稿到底发出去没有」的数据，BOSS 现在拿不到
+- 「AI 花费」改成「AI Token」：没配 `ai.pricing` 单价表时这一格只显示 token 数，框里写「花费」而显示 token 是名不副实。合计以万为单位保留一位小数，不足 1 万退回原始整数（不出「0.0 万」）
+- `GET /api/stats` 的每个时间桶补上 `tokens_in` / `tokens_out`（空桶补 0），折线图才有东西可画；分桶 token 合计与 `totals` 一致
+- 折线图纵轴从「AI 调用次数」换成每桶 token 合计（万），跟顶部 AI Token 口径对齐；一个 `ai_call` 事件都没有时仍退回画采集 + 筛选次数
+- 柱状图左柱堆叠顺序改为「草稿贴基线、送达叠上面、跳过最上」，基线附近跟主数字是同一样东西；柱子颜色跟随所选平台（`--c-boss` / `--c-zhaopin`，全部平台时中性色），选哪个平台一眼可见
+- 热力图改单色蓝阶五档（绿色在其它图里代表草稿，会串色），档位按当前区间最大值等分而不是写死阈值
+- 统计页加明暗两套配色，默认明色，跟主界面共用 `localStorage["boss-theme"]`：右上角切换按钮写回同一个 key，`?theme=light|dark` 优先于本地偏好但不写回（看他人分享的链接不改掉自己的设置）。明色复用主界面中性骨架（`--app-bg:#eef0f3`、`--bg-panel:#ffffff`、`--accent:#18181b`），彩色只给图表
 
 - 采集输出每条岗位新增 `platform` 字段（当前为 `boss`）；其余字段与旧输出一致
 - 页面操作收敛到 `src/adapters/boss.py`：collector 与 dispatch 只调用适配器，不再直接写 BOSS 选择器
