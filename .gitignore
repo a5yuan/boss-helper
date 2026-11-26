@@ -73,3 +73,6 @@ resume.md
 
 # 城市映射缓存（src/core/cities.py 生成，可重建）
 data/
+
+# 派活用的任务书，不进版本库
+work/
