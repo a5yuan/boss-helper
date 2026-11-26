@@ -271,7 +271,7 @@ def aggregate(events: list, range_key: str = "7d", platform: str = "all",
             "tokens_out": totals["tokens_out"],
             "cost": _cost(rows, pricing),
         },
-        "heatmap": _heatmap(rows, now),
+        "heatmap": _heatmap(rows, keys, now),
         "event_count": len(rows),
     }
 
@@ -304,16 +304,25 @@ def _cost(rows: list, pricing: dict | None) -> float | None:
     return round(total, 4)
 
 
-def _heatmap(rows: list, now: datetime) -> dict:
+def _heatmap(rows: list, keys: list, now: datetime) -> dict:
     """日历热力图：按天格子，含每天各平台的投递数。
 
-    回看窗口最多 ``HEATMAP_MAX_DAYS`` 天，更早的数据不画。
+    格子范围跟所选区间一致（``keys`` 是 ``window()`` 算出来的桶键），
+    **不按「最早有数据的那天」截断**：7 天区间就该有 7 格，前面没投递的日子
+    也要占位显示为空，否则看板上会像是少画了几天。
+
+    只有 ``all`` 区间可能超过 ``HEATMAP_MAX_DAYS`` 天，那时从尾部往前取。
     """
-    end = _floor_day(now)
-    start = end - timedelta(days=HEATMAP_MAX_DAYS - 1)
+    day_keys = []
+    for k in keys:
+        day = k[:10]
+        if not day_keys or day_keys[-1] != day:
+            day_keys.append(day)
+    # all 区间可能很长：只保留最近 HEATMAP_MAX_DAYS 天
+    day_keys = day_keys[-HEATMAP_MAX_DAYS:]
+
     days = {}
-    for i in range(HEATMAP_MAX_DAYS):
-        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+    for d in day_keys:
         days[d] = {"date": d, "submitted": 0, "drafted": 0, "skipped": 0,
                    "by_platform": {}}
 
@@ -337,15 +346,6 @@ def _heatmap(rows: list, now: datetime) -> dict:
                 pb[status] += 1
 
     cells = [days[k] for k in sorted(days)]
-    # 从最早有数据的那天开始截，前面全是空格子没意义
-    first = 0
-    for i, c in enumerate(cells):
-        if c["submitted"] or c["drafted"] or c["skipped"]:
-            first = i
-            break
-    else:
-        first = len(cells)
-    cells = cells[first:]
     return {
         "start": cells[0]["date"] if cells else "",
         "end": cells[-1]["date"] if cells else "",

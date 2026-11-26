@@ -220,6 +220,26 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(last["date"], "2026-11-25")
         self.assertEqual(last["submitted"], 1)
 
+    def test_heatmap_keeps_leading_empty_days_of_the_range(self):
+        """7 天区间只有最后一天有数据时，热力图也要给满 7 格。
+
+        以前按「最早有数据的那天」截断，看板上只剩 1 格，像少画了几天。
+        """
+        rows = [_ev("2026-11-25T10:00:00", status="drafted")]
+        out = aggregate(rows, range_key="7d", now=NOW)
+        cells = out["heatmap"]["cells"]
+        self.assertEqual(len(cells), 7)
+        self.assertEqual(cells[0]["date"], "2026-11-19")
+        self.assertEqual(cells[-1]["date"], "2026-11-25")
+        # 前 6 天是空的，最后一天有 1 条草稿
+        self.assertEqual([c["drafted"] for c in cells], [0, 0, 0, 0, 0, 0, 1])
+
+    def test_heatmap_is_empty_when_range_has_no_days(self):
+        """all 区间且没有任何事件时没有格子，页面显示「暂无数据」。"""
+        out = aggregate([], range_key="all", now=NOW)
+        self.assertEqual(out["heatmap"]["cells"], [])
+        self.assertEqual(out["heatmap"]["start"], "")
+
     def test_empty_events_gives_empty_buckets_but_keeps_axis(self):
         out = aggregate([], range_key="7d", now=NOW)
         self.assertEqual(len(out["buckets"]), 7)
