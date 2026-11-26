@@ -85,6 +85,21 @@ class TestStatsPageConstraints(unittest.TestCase):
         self.assertIn("boss-theme", self.src)
         self.assertIn("localStorage.setItem", self.src)
 
+    def test_all_platform_bar_differs_from_collected_color(self):
+        """全部平台时左柱（投递量）与右柱（采集岗位数）不能同色。
+
+        曾经两者都用 --c-collected，选「全部平台」时两根柱一样紫，看不出区别。
+        """
+        src = _read_page()
+        alls = re.findall(r"--c-all:\s*(#[0-9a-fA-F]{3,8})", src)
+        collected = re.findall(r"--c-collected:\s*(#[0-9a-fA-F]{3,8})", src)
+        self.assertEqual(len(alls), 2, "明暗两套都要定义 --c-all")
+        self.assertEqual(len(collected), 2, "明暗两套都要定义 --c-collected")
+        self.assertFalse(set(alls) & set(collected),
+                         "--c-all 与 --c-collected 在同一个主题里同色了")
+        # 全部平台分支必须落到 --c-all
+        self.assertIn("'var(--c-all)'", src)
+
     def test_bucketing_is_server_side(self):
         """分桶在服务端做，前端不自己算。"""
         self.assertIn("/api/stats?range=", self.src)

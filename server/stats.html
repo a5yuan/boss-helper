@@ -26,8 +26,9 @@
     --ok:#1a7f37; --warn:#b45309; --bad:#cf222e;
     /* 图表配色（明）：白底上各自够深，不糊成一片 */
     --c-submitted:#2563eb; --c-drafted:#1a7f37; --c-skipped:#8a94a6; --c-ai:#b45309;
-    --c-boss:#2563eb; --c-zhaopin:#b45309; --c-collected:#6d4fc4;
-    --c-bar:var(--c-collected);
+    --c-boss:#2563eb; --c-zhaopin:#b45309; --c-collected:#0f766e;
+    --c-all:#6d4fc4;
+    --c-bar:var(--c-all);
   }
   /* 深色：跟主界面共用 html.dark，骨架 token 与主界面一致 */
   html.dark{
@@ -37,8 +38,9 @@
     --accent:#ffffff; --on-accent:#0a0a0b;
     --ok:#3fb950; --warn:#d29922; --bad:#f85149;
     --c-submitted:#5b9cf8; --c-drafted:#3fb950; --c-skipped:#4a5262; --c-ai:#d29922;
-    --c-boss:#5b9cf8; --c-zhaopin:#d29922; --c-collected:#9070e0;
-    --c-bar:var(--c-collected);
+    --c-boss:#5b9cf8; --c-zhaopin:#d29922; --c-collected:#2dd4bf;
+    --c-all:#9070e0;
+    --c-bar:var(--c-all);
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -327,10 +329,11 @@ function renderBar(d) {
   const box = $('#bar');
   box.innerHTML = '';
   // 柱子颜色跟随平台：boss 用 BOSS 蓝，zhaopin 用智联黄，全部平台用中性紫（Q13=A）。
+  // 这里的 --c-all 必须跟右柱的 --c-collected 不同色，否则全部平台时两根柱一样紫。
   // 三段用同一色相的深浅区分，图例色块也读这个变量。
   const barFill = state.platform === 'boss' ? 'var(--c-boss)'
     : state.platform === 'zhaopin' ? 'var(--c-zhaopin)'
-    : 'var(--c-collected)';
+    : 'var(--c-all)';
   document.documentElement.style.setProperty('--c-bar', barFill);
   const buckets = d.buckets || [];
   const w = 640, h = 260, pad = { t: 14, r: 12, b: 34, l: 40 };
