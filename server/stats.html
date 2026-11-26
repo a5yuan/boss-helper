@@ -101,23 +101,23 @@
 
   <div class="charts">
     <div class="chart">
-      <h2>投递量</h2>
-      <p class="desc">按时间分桶，按平台分色堆叠</p>
+      <h2>填写与送达</h2>
+      <p class="desc">按时间分桶；草稿贴基线，送达叠在上面，跳过最上</p>
       <div class="legend">
-        <span class="item"><span class="swatch submitted"></span>已送达（submitted）</span>
-        <span class="item"><span class="swatch drafted"></span>仅草稿（drafted，未发送）</span>
-        <span class="item"><span class="swatch skipped"></span>跳过</span>
-        <span class="item"><span class="swatch collected"></span>采集到的岗位数</span>
+        <span class="item"><span class="swatch drafted"></span>草稿填写（未发送）</span>
+        <span class="item"><span class="swatch submitted"></span>已送达（对方收到）</span>
+        <span class="item"><span class="swatch skipped"></span>已跳过</span>
+        <span class="item"><span class="swatch collected"></span>采集到的岗位</span>
       </div>
       <div id="bar"></div>
       <p class="note" id="bar-note"></p>
     </div>
 
     <div class="chart">
-      <h2>AI 调用趋势</h2>
-      <p class="desc">模型调用次数与单次耗时</p>
+      <h2>AI Token 趋势</h2>
+      <p class="desc">每个分桶的 token 合计，单位万</p>
       <div class="legend">
-        <span class="item"><span class="swatch ai"></span><span id="line-series">调用次数</span></span>
+        <span class="item"><span class="swatch ai"></span><span id="line-series">token 合计（万）</span></span>
       </div>
       <div id="line"></div>
     </div>
@@ -156,9 +156,21 @@ function fmtMs(ms) {
   return (ms / 1000).toFixed(1) + ' s';
 }
 
-function fmtCost(c) {
-  if (c == null) return '—';
-  return '¥' + (c < 0.01 ? c.toFixed(4) : c.toFixed(2));
+/** token 主数字：≥ 1 万显示「25.8 万」，不足万字退回原始整数（不出现「0.0 万」）。 */
+function fmtTokens(n) {
+  if (n == null) return '—';
+  n = Number(n) || 0;
+  if (n >= 10000) return (n / 10000).toFixed(1) + ' 万';
+  return String(n);
+}
+
+/** 副标题里的 token 分项：明确带「万」，为 0 时老实写 0，不写「0.0 万」。 */
+function fmtWan(n) {
+  n = Number(n) || 0;
+  if (!n) return '0';
+  const w = n / 10000;
+  if (w < 0.05) return n + ' token';
+  return w.toFixed(1) + ' 万';
 }
 
 async function api(path) {
@@ -170,21 +182,21 @@ async function api(path) {
 /* ── 顶部五个数字 ────────────────────────────────────────────── */
 function renderCards(d) {
   const t = d.totals || {};
-  // 成功率：分母是「真的动过手」的次数，闸门拦下的不算失败
+  // 动作完成率：分母是「真的动过手」的次数，闸门拦下的不算失败（ADR-0004）。
+  // 它恒为 100%，测的是有没有报错，不是投得成不成。
   const rate = t.success_rate == null ? '—' : Math.round(t.success_rate * 100) + '%';
+  const tokTotal = (t.tokens_in || 0) + (t.tokens_out || 0);
   const cards = [
-    { cls: 'main', k: '总投递数', v: t.submitted || 0,
-      s: `已送达；仅草稿 ${t.drafted || 0} 条（对方收不到，不计入）` },
-    { cls: '', k: '成功率', v: rate,
-      s: `动过手 ${t.attempts || 0} 次，成功 ${(t.submitted || 0) + (t.drafted || 0)} 次` },
-    { cls: '', k: '今日投递', v: t.today_submitted || 0,
-      s: `今日草稿 ${t.today_drafted || 0} 条` },
+    { cls: 'draft', k: '草稿填写数', v: t.drafted || 0,
+      s: `已送达 ${t.submitted || 0}（对方收到）` },
+    { cls: '', k: '动作完成率', v: rate,
+      s: `${t.attempts || 0} 次动作无一失败` },
+    { cls: 'draft', k: '今日草稿', v: t.today_drafted || 0,
+      s: `今日已送达 ${t.today_submitted || 0}` },
     { cls: '', k: '平均耗时', v: fmtMs(t.avg_duration_ms),
-      s: t.avg_duration_ms == null ? '暂无投递耗时数据' : '单条投递平均' },
-    { cls: '', k: 'AI 花费', v: fmtCost(t.cost),
-      s: t.cost == null
-        ? `未配单价表（token ${t.tokens_in || 0} / ${t.tokens_out || 0}）`
-        : `调用 ${t.ai_calls || 0} 次` },
+      s: '单次投递平均' },
+    { cls: '', k: 'AI Token', v: tokTotal ? fmtTokens(tokTotal) : '—',
+      s: `${t.ai_calls || 0} 次调用 · 入 ${fmtWan(t.tokens_in)} / 出 ${fmtWan(t.tokens_out)}` },
   ];
   $('#cards').innerHTML = cards.map(c => `
     <div class="card ${c.cls}">
@@ -238,6 +250,17 @@ function emptyNote(svg, w, h, text) {
   svg.appendChild(t);
 }
 
+/** 把纵轴抬到 4 等分的整齐刻度。1/2/2.5/5/10 步进，token 折线要能画小数万。 */
+function niceScale(maxV) {
+  if (!(maxV > 0)) return { top: 1, step: 1 };
+  const rough = maxV / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const m = rough / mag;
+  const nice = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10;
+  const step = nice * mag;
+  return { top: step * 4, step };
+}
+
 /* ── 柱状图：投递量，按平台分色堆叠 ────────────────────────────── */
 function renderBar(d) {
   const box = $('#bar');
@@ -279,11 +302,11 @@ function renderBar(d) {
   buckets.forEach((b, i) => {
     const x0 = pad.l + i * (slot + gap);
 
-    // 左柱：投递量堆叠
+    // 左柱：草稿贴基线（最下）→ 送达叠上面 → 跳过最上（ADR-0004）
     let y = pad.t + plotH;
     const stack = [
-      { v: b.submitted || 0, cls: 'submitted' },
       { v: b.drafted || 0, cls: 'drafted' },
+      { v: b.submitted || 0, cls: 'submitted' },
       { v: b.skipped || 0, cls: 'skipped' },
     ];
     stack.forEach(seg => {
@@ -338,22 +361,23 @@ function renderLine(d) {
   const svg = svgEl('svg', { viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none' });
   svg.style.height = '260px';
 
-  // AI 调用是主线；还没有 ai_call 事件时退而画采集/筛选次数，
-  // 免得整张图是空的（空图看起来像加载失败）。
+  // 主线是每桶 token 合计（万，ADR-0004）；一个 ai_call 事件都没有时
+  // 退而画采集/筛选次数，免得整张图是空的（空图看起来像加载失败）。
   const hasAi = buckets.some(b => (b.ai_calls || 0) > 0);
   const series = hasAi
-    ? { label: 'AI 调用次数', values: buckets.map(b => b.ai_calls || 0), cls: 'ai' }
-    : { label: '采集 + 筛选次数', values: buckets.map(b => (b.collects || 0) + (b.screens || 0)), cls: 'ai' };
+    ? { label: 'token 合计（万）',
+        values: buckets.map(b => ((b.tokens_in || 0) + (b.tokens_out || 0)) / 10000) }
+    : { label: '采集 + 筛选次数',
+        values: buckets.map(b => (b.collects || 0) + (b.screens || 0)) };
 
-  const maxV = Math.max(1, ...series.values);
-  const yStep = Math.max(1, Math.ceil(maxV / 4));
-  const top = yStep * Math.max(4, Math.ceil(maxV / yStep));
+  const { top, step } = niceScale(Math.max(...series.values, 0));
+  const dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
 
   drawFrame(svg, {
     w, h, pad, yMax: top, yTicks: 4,
     xLabels: buckets.map(b => b.label),
     xCount: buckets.length,
-    yFormat: v => Math.round(v),
+    yFormat: v => v.toFixed(dec),
   });
 
   if (!buckets.length || !series.values.some(v => v > 0)) {
@@ -381,7 +405,10 @@ function renderLine(d) {
   series.values.forEach((v, i) => {
     const c = svgEl('circle', { cx: xAt(i), cy: yAt(v), r: 2.6, fill: 'var(--c-ai)' });
     const title = svgEl('title');
-    title.textContent = `${buckets[i].label} · ${v} 次`;
+    const b = buckets[i];
+    title.textContent = hasAi
+      ? `${b.label} · ${((b.tokens_in || 0) + (b.tokens_out || 0)).toLocaleString()} token`
+      : `${b.label} · ${v} 次`;
     c.appendChild(title);
     svg.appendChild(c);
   });
